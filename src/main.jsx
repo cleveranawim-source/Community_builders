@@ -11,7 +11,7 @@ import {
   Sparkles,
   UsersRound,
 } from "lucide-react";
-import GameWorld from "./world.jsx";
+import GameWorld, { treasureSeeds } from "./world.jsx";
 import {
   quests,
   fogSeeds,
@@ -222,6 +222,7 @@ function TeacherBoard() {
             <span>미션</span>
             <span>발견</span>
             <span>장벽</span>
+            <span>조각</span>
             <span>역량</span>
           </div>
           {sorted.map((row) => (
@@ -234,6 +235,7 @@ function TeacherBoard() {
               <span>{row.solvedCount || 0}/{quests.length}</span>
               <span>{row.found || 0}/{quests.length}</span>
               <span>{row.cleared || 0}/{fogSeeds.length}</span>
+              <span>💛{row.gems || 0}</span>
               <span className="bars">
                 {stats.map((stat) => (
                   <i
@@ -254,7 +256,7 @@ function TeacherBoard() {
   );
 }
 
-function saveResultCard({ name, score, energy, cleared, title }) {
+function saveResultCard({ name, score, energy, cleared, gems, title }) {
   const canvas = document.createElement("canvas");
   canvas.width = 1000;
   canvas.height = 700;
@@ -284,7 +286,7 @@ function saveResultCard({ name, score, energy, cleared, title }) {
 
   ctx.fillStyle = "#cbd5e1";
   ctx.font = "700 22px 'Apple SD Gothic Neo', sans-serif";
-  ctx.fillText(`16개 공동체 미션 완주 · 빛장벽 ${cleared}개 해제 · 공동체 에너지 ${energy}`, 60, 280);
+  ctx.fillText(`16개 미션 완주 · 빛장벽 ${cleared}개 해제 · 마음 조각 ${gems}개 · 에너지 ${energy}`, 60, 280);
 
   stats.forEach((stat, index) => {
     const y = 348 + index * 74;
@@ -338,7 +340,7 @@ function Game() {
   const inputRef = useRef({ keys: new Set(), joy: { x: 0, y: 0 } });
   const runningRef = useRef(false);
   if (import.meta.env.DEV) {
-    globalThis.__cbDebug = { playerRef, inputRef, runningRef };
+    globalThis.__cbDebug = { playerRef, inputRef, runningRef, treasureSeeds };
   }
 
   const [playerHud, setPlayerHud] = useState({ x: 0, z: 0, dir: 0 });
@@ -349,6 +351,7 @@ function Game() {
   const [discovered, setDiscovered] = useState({});
   const [peers, setPeers] = useState({});
   const [fogs, setFogs] = useState(() => fogSeeds.map((fog) => ({ ...fog, cleared: false })));
+  const [treasures, setTreasures] = useState(() => treasureSeeds.map((t) => ({ ...t, found: false })));
   const [projectiles, setProjectiles] = useState([]);
   const [energy, setEnergy] = useState(0);
   const [toast, setToast] = useState("");
@@ -357,6 +360,7 @@ function Game() {
   const [classRows, setClassRows] = useState(null);
 
   const fogsRef = useRef(fogs);
+  const treasuresRef = useRef(treasures);
   const projectilesRef = useRef(projectiles);
   const nearQuestRef = useRef(null);
 
@@ -365,6 +369,7 @@ function Game() {
   const peerList = Object.values(peers);
   const onlineCount = peerList.length + 1;
   const clearedFogCount = fogs.filter((fog) => fog.cleared).length;
+  const treasureCount = treasures.filter((t) => t.found).length;
   const endingOpen = started && completed === quests.length && !endingDismissed;
 
   runningRef.current = started && !activeQuest && !endingOpen;
@@ -372,6 +377,10 @@ function Game() {
   useEffect(() => {
     fogsRef.current = fogs;
   }, [fogs]);
+
+  useEffect(() => {
+    treasuresRef.current = treasures;
+  }, [treasures]);
 
   useEffect(() => {
     projectilesRef.current = projectiles;
@@ -404,6 +413,19 @@ function Game() {
       setToast(`보물 거점 발견: ${newlyFound.map((quest) => quest.title).join(", ")}`);
     }
 
+    // 숨은 마음 조각 줍기
+    const picked = treasures.filter(
+      (t) => !t.found && Math.hypot(t.x - playerHud.x, t.z - playerHud.z) < 1.7
+    );
+    if (picked.length) {
+      const foundTotal = treasures.filter((t) => t.found).length + picked.length;
+      setTreasures((prev) => prev.map((t) => (
+        picked.some((p) => p.id === t.id) ? { ...t, found: true } : t
+      )));
+      setEnergy((prev) => Math.min(100, prev + picked.length * 6));
+      setToast(`✨ 숨은 마음 조각 발견! (${foundTotal}/${treasureSeeds.length}) 에너지 +${picked.length * 6}`);
+    }
+
     let nearest = null;
     let nearestDistance = Infinity;
     quests.forEach((quest) => {
@@ -416,7 +438,7 @@ function Game() {
     const next = nearestDistance < NPC_RADIUS ? nearest : null;
     nearQuestRef.current = next;
     setNearQuest(next);
-  }, [playerHud, discovered]);
+  }, [playerHud, discovered, treasures]);
 
   const openQuest = useCallback((quest) => {
     setActiveQuest({ quest, view: null });
@@ -595,6 +617,7 @@ function Game() {
           found: discoveredCount,
           solvedCount: completed,
           cleared: clearedFogCount,
+          gems: treasureCount,
           energy,
           score,
           done: completed === quests.length,
@@ -602,7 +625,7 @@ function Game() {
         .catch(() => {});
     }, 1000);
     return () => window.clearTimeout(timer);
-  }, [profile, user, discoveredCount, completed, clearedFogCount, energy, score]);
+  }, [profile, user, discoveredCount, completed, clearedFogCount, treasureCount, energy, score]);
 
   const startGame = (name, room) => {
     setProfile({ name, room });
@@ -615,6 +638,7 @@ function Game() {
             found: 0,
             solvedCount: 0,
             cleared: 0,
+            gems: 0,
             energy: 0,
             score,
             done: false,
@@ -653,6 +677,9 @@ function Game() {
     const resetFogs = fogSeeds.map((fog) => ({ ...fog, cleared: false }));
     setFogs(resetFogs);
     fogsRef.current = resetFogs;
+    const resetTreasures = treasureSeeds.map((t) => ({ ...t, found: false }));
+    setTreasures(resetTreasures);
+    treasuresRef.current = resetTreasures;
     setProjectiles([]);
     projectilesRef.current = [];
     setEnergy(0);
@@ -706,6 +733,7 @@ function Game() {
         playerRef={playerRef}
         inputRef={inputRef}
         fogsRef={fogsRef}
+        treasuresRef={treasuresRef}
         runningRef={runningRef}
         solved={solved}
         discovered={discovered}
@@ -758,6 +786,9 @@ function Game() {
           <div className="energy-chip">
             <strong>{energy}</strong>
             <span>공동체 에너지</span>
+          </div>
+          <div className="treasure-chip" title="숨은 마음 조각 (맵 곳곳에 숨어 있어요)">
+            💛 {treasureCount}/{treasureSeeds.length}
           </div>
           {profile?.room && <div className="room-chip small">반 {profile.room}</div>}
         </div>
@@ -922,7 +953,7 @@ function Game() {
             <p className="ending-title">칭호: <strong>{endingTitle}</strong></p>
             <p className="ending-sub">
               {profile.name} 탐험가가 16개의 공동체 미션을 모두 해결했습니다.
-              <br />빛장벽 {clearedFogCount}개 해제 · 공동체 에너지 {energy}
+              <br />빛장벽 {clearedFogCount}개 해제 · 마음 조각 {treasureCount}/{treasureSeeds.length} · 공동체 에너지 {energy}
             </p>
             <div className="ending-stats">
               {stats.map(({ key, label, color }) => (
@@ -942,6 +973,7 @@ function Game() {
                   score,
                   energy,
                   cleared: clearedFogCount,
+                  gems: treasureCount,
                   title: endingTitle,
                 })}
               >

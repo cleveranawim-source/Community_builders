@@ -119,6 +119,39 @@ const HOUSES = HOUSE_CANDIDATES.reduce((placed, [x, z], index) => {
   return placed;
 }, []);
 
+// 보물찾기: 길에서 벗어난 곳에 숨겨 두는 '마음 조각' 24개
+export const treasureSeeds = (() => {
+  const rand = mulberry32(777123);
+  const spots = [];
+  let tries = 0;
+  while (spots.length < 24 && tries < 6000) {
+    tries += 1;
+    const x = (rand() * 2 - 1) * (HALF - 6);
+    const z = (rand() * 2 - 1) * (HALF - 6);
+    const d = Math.hypot(x, z);
+    if (d < 10 || d > HALF - 6) continue;
+    const rx = Math.round(x);
+    const rz = Math.round(z);
+    let onPath = false;
+    for (let dx = -1; dx <= 1 && !onPath; dx += 1) {
+      for (let dz = -1; dz <= 1; dz += 1) {
+        if (TERRAIN.pathSet.has(`${rx + dx},${rz + dz}`)) {
+          onPath = true;
+          break;
+        }
+      }
+    }
+    if (onPath) continue;
+    if (POOLS.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + 2)) continue;
+    if (quests.some((q) => Math.hypot(x - q.pos[0], z - q.pos[1]) < 5)) continue;
+    if (fogSeeds.some((f) => Math.hypot(x - f.x, z - f.z) < 2.2)) continue;
+    if (HOUSES.some((h) => Math.hypot(x - h[0], z - h[1]) < 2.8)) continue;
+    if (spots.some((s) => Math.hypot(s.x - x, s.z - z) < 7)) continue;
+    spots.push({ id: `treasure-${spots.length + 1}`, x: Math.round(x * 10) / 10, z: Math.round(z * 10) / 10 });
+  }
+  return spots;
+})();
+
 function mat(color, options = {}) {
   return new THREE.MeshStandardMaterial({
     color,
@@ -333,6 +366,42 @@ function createFogModel() {
   group.add(core, shardA, shardB, ring);
   group.position.y = 1.05;
   return { group, mats: [crystalMat, ringMat] };
+}
+
+// 마음 조각(보물): 반짝이는 작은 하트
+// 씬 dispose와 함께 정리되도록 캐시 없이 매번 생성한다 (24개, 비용 미미)
+function createTreasureMesh() {
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0.35);
+  shape.bezierCurveTo(0, 0.6, -0.35, 0.6, -0.35, 0.3);
+  shape.bezierCurveTo(-0.35, 0.05, 0, -0.05, 0, -0.35);
+  shape.bezierCurveTo(0, -0.05, 0.35, 0.05, 0.35, 0.3);
+  shape.bezierCurveTo(0.35, 0.6, 0, 0.6, 0, 0.35);
+  const treasureGeo = new THREE.ExtrudeGeometry(shape, {
+    depth: 0.12,
+    bevelEnabled: true,
+    bevelSize: 0.03,
+    bevelThickness: 0.03,
+    bevelSegments: 2,
+  });
+  treasureGeo.center();
+  const treasureMat = mat(0xff6b9d, {
+    emissive: new THREE.Color(0xff4d88),
+    emissiveIntensity: 0.85,
+    roughness: 0.28,
+  });
+  const group = new THREE.Group();
+  const heart = new THREE.Mesh(treasureGeo, treasureMat);
+  heart.scale.setScalar(0.55);
+  heart.castShadow = true;
+  const glow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.32, 20),
+    new THREE.MeshBasicMaterial({ color: 0xff9dbd, transparent: true, opacity: 0.28, depthWrite: false })
+  );
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.y = -0.72;
+  group.add(heart, glow);
+  return group;
 }
 
 // 숨은 NPC를 감싸는 안개 고치 + 물음표 표식
@@ -677,6 +746,7 @@ export default function GameWorld({
   playerRef,
   inputRef,
   fogsRef,
+  treasuresRef,
   runningRef,
   solved,
   discovered,
@@ -691,6 +761,7 @@ export default function GameWorld({
   const questRefs = useRef(new globalThis.Map());
   const peerRefs = useRef(new globalThis.Map());
   const fogRefs = useRef(new globalThis.Map());
+  const treasureRefs = useRef(new globalThis.Map());
   const projectileRefs = useRef(new globalThis.Map());
   const onSyncRef = useRef(onSync);
   const onBlockedRef = useRef(onBlocked);
@@ -795,6 +866,14 @@ export default function GameWorld({
       handle.group.position.z = fog.z;
       scene.add(handle.group);
       fogRefs.current.set(fog.id, { handle, anim: 0 });
+    });
+
+    treasureRefs.current.clear();
+    treasureSeeds.forEach((treasure) => {
+      const group = createTreasureMesh();
+      group.position.set(treasure.x, 0.85, treasure.z);
+      scene.add(group);
+      treasureRefs.current.set(treasure.id, { group, anim: 0 });
     });
 
     const clouds = new THREE.Group();
@@ -989,6 +1068,28 @@ export default function GameWorld({
           group.rotation.y += dt * 2.5;
           mats[0].opacity = 0.86 * (1 - k);
           mats[1].opacity = 0.62 * (1 - k);
+        }
+      });
+
+      // 마음 조각: 둥실거리다가 주우면 위로 솟으며 사라진다
+      treasuresRef.current?.forEach((treasure, index) => {
+        const entry = treasureRefs.current.get(treasure.id);
+        if (!entry) return;
+        if (!treasure.found) {
+          if (entry.anim > 0) {
+            entry.anim = 0;
+            entry.group.scale.setScalar(1);
+          }
+          entry.group.visible = true;
+          entry.group.position.y = 0.85 + Math.sin(t * 2.4 + index) * 0.12;
+          entry.group.rotation.y = t * 1.6 + index;
+        } else if (entry.anim < 1) {
+          entry.anim = Math.min(1, entry.anim + dt * 3.2);
+          const k = entry.anim;
+          entry.group.visible = k < 1;
+          entry.group.scale.setScalar(1 + k * 1.2);
+          entry.group.position.y = 0.85 + k * 1.6;
+          entry.group.rotation.y += dt * 9;
         }
       });
 

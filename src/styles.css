@@ -688,6 +688,15 @@ meter::-webkit-meter-optimum-value {
   font-weight: 950;
 }
 
+.treasure-chip {
+  border-radius: 999px;
+  padding: 7px 11px;
+  color: #0f172a;
+  background: #fbcfe8;
+  font-size: 12px;
+  font-weight: 950;
+}
+
 .brightness-chip {
   display: flex;
   align-items: center;
@@ -1144,7 +1153,7 @@ meter::-webkit-meter-optimum-value {
 
 .teacher-row {
   display: grid;
-  grid-template-columns: 1.6fr .7fr .7fr .7fr 1.4fr;
+  grid-template-columns: 1.6fr .7fr .7fr .7fr .6fr 1.4fr;
   align-items: center;
   gap: 8px;
   padding: 13px 18px;
@@ -1216,7 +1225,7 @@ meter::-webkit-meter-optimum-value {
   }
 
   .teacher-row {
-    grid-template-columns: 1.4fr .6fr .6fr .6fr 1.2fr;
+    grid-template-columns: 1.4fr .6fr .6fr .6fr .5fr 1.2fr;
     padding: 11px 12px;
     font-size: 13px;
   }
