@@ -961,6 +961,15 @@ meter::-webkit-meter-optimum-value {
   background: linear-gradient(180deg, rgba(2,6,23,.45), rgba(2,6,23,.78));
 }
 
+.intro-bg-video {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .intro-panel {
   position: relative;
   width: min(460px, 100%);

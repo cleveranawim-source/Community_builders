@@ -22,6 +22,7 @@ import {
   portraitOf,
   HERO_PORTRAIT,
   TITLE_BG,
+  TITLE_BG_VIDEO,
 } from "./data/index.js";
 import { uid, josa } from "./lib/utils.js";
 import { initAudio, sfx, getMuted, setMuted } from "./lib/sound.js";
@@ -106,6 +107,14 @@ function Joystick({ inputRef }) {
 function IntroScreen({ onStart, onContinue, savedGame }) {
   const [name, setName] = useState("");
   const [room, setRoom] = useState("");
+  const [videoOk, setVideoOk] = useState(true);
+  const videoRef = useRef(null);
+
+  // 일부 브라우저는 autoPlay 속성만으로 재생을 시작하지 않으므로 마운트 시 명시적으로 재생 시도
+  useEffect(() => {
+    const v = videoRef.current;
+    if (v) v.play().catch(() => {});
+  }, [videoOk]);
 
   const start = () => {
     onStart(name.trim() || `탐험가${Math.floor(Math.random() * 90) + 10}`, room.trim().toUpperCase());
@@ -114,6 +123,20 @@ function IntroScreen({ onStart, onContinue, savedGame }) {
 
   return (
     <section className="intro-layer" style={{ backgroundImage: `url(${TITLE_BG})` }}>
+      {videoOk && (
+        <video
+          ref={videoRef}
+          className="intro-bg-video"
+          autoPlay
+          muted
+          loop
+          playsInline
+          poster={TITLE_BG}
+          onError={() => setVideoOk(false)}
+        >
+          <source src={TITLE_BG_VIDEO} type="video/mp4" />
+        </video>
+      )}
       <div className="intro-panel">
         <img className="intro-hero" src={HERO_PORTRAIT} alt="탐험가" />
         <h1>공동체 빌더스</h1>
