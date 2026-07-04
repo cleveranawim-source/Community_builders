@@ -54,7 +54,11 @@ function computeTerrainData() {
     const [qx, qz] = quest.pos;
     const steps = Math.ceil(Math.hypot(qx, qz));
     for (let i = 0; i <= steps; i += 1) {
-      stamp(Math.round((qx * i) / steps), Math.round((qz * i) / steps));
+      const fx = (qx * i) / steps;
+      const fz = (qz * i) / steps;
+      // 길은 광장 가장자리부터 시작 (중심 수렴으로 광장이 길로 뒤덮이는 것 방지)
+      if (Math.hypot(fx, fz) < 7.5) continue;
+      stamp(Math.round(fx), Math.round(fz));
     }
   });
   // 내측·외측 순환로
@@ -599,7 +603,7 @@ function buildDecorations(scene) {
   scatter(110, trees, 3);
   scatter(55, bushes, 2.4);
   scatter(34, rocks, 3);
-  scatter(95, flowers, 1.6);
+  scatter(180, flowers, 1.4);
 
   const matrix = new THREE.Matrix4();
   const quat = new THREE.Quaternion();
@@ -659,27 +663,103 @@ function buildDecorations(scene) {
   rockMesh.castShadow = true;
   scene.add(rockMesh);
 
+  // 꽃: 홑꽃 + 꽃밭 클러스터 12곳, 3종(구슬꽃·데이지·튤립)
+  const flowerSpots = [];
+  flowers.forEach(([x, z, r]) => flowerSpots.push({ x, z, type: Math.floor(r * 3) % 3, v: r }));
+  const clusterCenters = [];
+  scatter(12, clusterCenters, 13);
+  clusterCenters.forEach(([cx, cz, cr]) => {
+    const count = 14 + Math.floor(cr * 9);
+    const clusterType = Math.floor(cr * 3) % 3;
+    for (let i = 0; i < count; i += 1) {
+      const angle = rand() * Math.PI * 2;
+      const radius = Math.sqrt(rand()) * 4.2;
+      const x = cx + Math.cos(angle) * radius;
+      const z = cz + Math.sin(angle) * radius;
+      if (TERRAIN.pathSet.has(`${Math.round(x)},${Math.round(z)}`)) continue;
+      if (POOLS.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + 1.5)) continue;
+      flowerSpots.push({ x, z, type: rand() < 0.75 ? clusterType : Math.floor(rand() * 3), v: rand() });
+    }
+  });
+
+  // 광장 화단: 분수대를 두르는 꽃 테두리 (길목은 비움)
+  for (let i = 0; i < 48; i += 1) {
+    const angle = (i / 48) * Math.PI * 2;
+    const radius = 5.4 + (i % 2) * 0.9;
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    if (TERRAIN.pathSet.has(`${Math.round(x)},${Math.round(z)}`)) continue;
+    flowerSpots.push({ x, z, type: i % 3, v: (i * 0.137) % 1 });
+  }
+
+  const byFlowerType = [[], [], []];
+  flowerSpots.forEach((spot) => byFlowerType[spot.type].push(spot));
+
   const stemMesh = new THREE.InstancedMesh(
     new THREE.CylinderGeometry(0.025, 0.025, 0.28, 6),
     mat(0x3d9b5d),
-    flowers.length
+    flowerSpots.length
   );
-  const bloomMesh = new THREE.InstancedMesh(
+  flowerSpots.forEach((spot, i) => {
+    const y = groundHeight(spot.x, spot.z);
+    matrix.compose(pos.set(spot.x, y + 0.48, spot.z), quat, scale.set(1, 1, 1));
+    stemMesh.setMatrixAt(i, matrix);
+  });
+  scene.add(stemMesh);
+
+  // 구슬꽃
+  const orbShades = [0xff8fab, 0xffd166, 0x8b5cf6, 0x7dd3fc, 0xfb923c];
+  const orbMesh = new THREE.InstancedMesh(
     new THREE.SphereGeometry(0.105, 10, 8),
     mat(0xffffff, { roughness: 0.5 }),
-    flowers.length
+    byFlowerType[0].length
   );
-  const petalShades = [0xff8fab, 0xffd166, 0x8b5cf6, 0x7dd3fc, 0xfb923c];
-  flowers.forEach(([x, z], i) => {
-    const y = groundHeight(x, z);
-    matrix.compose(pos.set(x, y + 0.48, z), quat, scale.set(1, 1, 1));
-    stemMesh.setMatrixAt(i, matrix);
-    matrix.compose(pos.set(x, y + 0.66, z), quat, scale.set(1, 1, 1));
-    bloomMesh.setMatrixAt(i, matrix);
-    bloomMesh.setColorAt(i, color.setHex(petalShades[i % petalShades.length]));
+  byFlowerType[0].forEach((spot, i) => {
+    const y = groundHeight(spot.x, spot.z);
+    matrix.compose(pos.set(spot.x, y + 0.66, spot.z), quat, scale.set(1, 1, 1));
+    orbMesh.setMatrixAt(i, matrix);
+    orbMesh.setColorAt(i, color.setHex(orbShades[Math.floor(spot.v * orbShades.length) % orbShades.length]));
   });
-  bloomMesh.castShadow = true;
-  scene.add(stemMesh, bloomMesh);
+  orbMesh.castShadow = true;
+  scene.add(orbMesh);
+
+  // 데이지 (납작한 꽃판 + 노란 중심)
+  const daisyShades = [0xffffff, 0xffe4ef, 0xfdf3c8];
+  const daisyPetal = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(0.13, 10, 8),
+    mat(0xffffff, { roughness: 0.55 }),
+    byFlowerType[1].length
+  );
+  const daisyCenter = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(0.05, 8, 6),
+    mat(0xffd166, { roughness: 0.5 }),
+    byFlowerType[1].length
+  );
+  byFlowerType[1].forEach((spot, i) => {
+    const y = groundHeight(spot.x, spot.z);
+    matrix.compose(pos.set(spot.x, y + 0.63, spot.z), quat, scale.set(1, 0.32, 1));
+    daisyPetal.setMatrixAt(i, matrix);
+    daisyPetal.setColorAt(i, color.setHex(daisyShades[Math.floor(spot.v * daisyShades.length) % daisyShades.length]));
+    matrix.compose(pos.set(spot.x, y + 0.68, spot.z), quat, scale.set(1, 1, 1));
+    daisyCenter.setMatrixAt(i, matrix);
+  });
+  scene.add(daisyPetal, daisyCenter);
+
+  // 튤립 (달걀형 꽃봉오리)
+  const tulipShades = [0xef4444, 0xf472b6, 0xa855f7, 0xfb923c, 0xfacc15];
+  const tulipMesh = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(0.1, 10, 8),
+    mat(0xffffff, { roughness: 0.45 }),
+    byFlowerType[2].length
+  );
+  byFlowerType[2].forEach((spot, i) => {
+    const y = groundHeight(spot.x, spot.z);
+    matrix.compose(pos.set(spot.x, y + 0.68, spot.z), quat, scale.set(0.8, 1.3, 0.8));
+    tulipMesh.setMatrixAt(i, matrix);
+    tulipMesh.setColorAt(i, color.setHex(tulipShades[Math.floor(spot.v * tulipShades.length) % tulipShades.length]));
+  });
+  tulipMesh.castShadow = true;
+  scene.add(tulipMesh);
 
   // 순환로 바깥 가로등 (내측·외측)
   const lanternSpots = [];
@@ -767,11 +847,13 @@ export default function GameWorld({
   const onBlockedRef = useRef(onBlocked);
   const discoveredRef = useRef(discovered);
   const progressRef = useRef(progress);
+  const solvedRef = useRef(solved);
 
   onSyncRef.current = onSync;
   onBlockedRef.current = onBlocked;
   discoveredRef.current = discovered;
   progressRef.current = progress;
+  solvedRef.current = solved;
 
   useEffect(() => {
     if (!mountRef.current) return undefined;
@@ -831,7 +913,7 @@ export default function GameWorld({
     scene.add(playerChar.group);
 
     questRefs.current.clear();
-    quests.forEach((quest) => {
+    quests.forEach((quest, questIndex) => {
       const group = new THREE.Group();
       group.position.set(quest.pos[0], 0.22, quest.pos[1]);
       const base = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.82, 0.28, 24), mat(quest.colorNum, { roughness: 0.62 }));
@@ -856,8 +938,43 @@ export default function GameWorld({
       const cocoon = createMistCocoon();
       group.add(base, ring, character.group, gem, cocoon.group);
       scene.add(group);
-      questRefs.current.set(quest.id, { group, gem, ring, character, cocoon, pos: quest.pos, reveal: 0 });
+      questRefs.current.set(quest.id, { group, gem, ring, character, cocoon, pos: quest.pos, questIndex, reveal: 0, bloom: 0 });
     });
+
+    // 미션을 해결하면 거점 둘레에 피어나는 꽃 (거점당 12송이, 전체 인스턴싱)
+    const BLOOMS_PER_QUEST = 12;
+    const bloomRand = mulberry32(4242);
+    const solveFlowerData = [];
+    quests.forEach((quest, questIndex) => {
+      for (let i = 0; i < BLOOMS_PER_QUEST; i += 1) {
+        const angle = bloomRand() * Math.PI * 2;
+        const radius = 1.5 + bloomRand() * 1.3;
+        solveFlowerData.push({
+          questIndex,
+          x: quest.pos[0] + Math.cos(angle) * radius,
+          z: quest.pos[1] + Math.sin(angle) * radius,
+          s: 0.7 + bloomRand() * 0.7,
+          colorHex: [quest.colorNum, 0xff8fab, 0xffffff, 0xffd166][i % 4],
+        });
+      }
+    });
+    const solveBlooms = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(0.12, 10, 8),
+      mat(0xffffff, { roughness: 0.5 }),
+      solveFlowerData.length
+    );
+    {
+      const m4 = new THREE.Matrix4();
+      const col = new THREE.Color();
+      const zeroScale = new THREE.Vector3(0.001, 0.001, 0.001);
+      const q0 = new THREE.Quaternion();
+      solveFlowerData.forEach((flower, i) => {
+        m4.compose(new THREE.Vector3(flower.x, 0.5, flower.z), q0, zeroScale);
+        solveBlooms.setMatrixAt(i, m4);
+        solveBlooms.setColorAt(i, col.setHex(flower.colorHex));
+      });
+    }
+    scene.add(solveBlooms);
 
     fogRefs.current.clear();
     fogSeeds.forEach((fog) => {
@@ -911,6 +1028,10 @@ export default function GameWorld({
     let lastSync = 0;
     let lastBlockedToast = 0;
     const camTarget = new THREE.Vector3();
+    const bloomM4 = new THREE.Matrix4();
+    const bloomQ = new THREE.Quaternion();
+    const bloomS = new THREE.Vector3();
+    const bloomP = new THREE.Vector3();
 
     const animate = () => {
       raf = requestAnimationFrame(animate);
@@ -1042,6 +1163,31 @@ export default function GameWorld({
           cocoon.group.rotation.y = t * 0.25;
           cocoon.group.position.y = Math.sin(t * 1.4 + id.length) * 0.05;
           cocoon.sprite.position.y = 2.55 + Math.sin(t * 2 + id.length) * 0.12;
+        }
+
+        // 해결된 거점 둘레에 꽃이 피어난다 (마을이 살아나는 연출)
+        const isSolved = !!solvedRef.current?.[id];
+        if (isSolved && entry.bloom < 1) {
+          entry.bloom = Math.min(1, entry.bloom + dt * 1.1);
+          const bk = easeOutBack(entry.bloom);
+          for (let i = 0; i < BLOOMS_PER_QUEST; i += 1) {
+            const flower = solveFlowerData[entry.questIndex * BLOOMS_PER_QUEST + i];
+            bloomM4.compose(
+              bloomP.set(flower.x, 0.28 + 0.28 * entry.bloom, flower.z),
+              bloomQ,
+              bloomS.setScalar(Math.max(0.001, flower.s * bk))
+            );
+            solveBlooms.setMatrixAt(entry.questIndex * BLOOMS_PER_QUEST + i, bloomM4);
+          }
+          solveBlooms.instanceMatrix.needsUpdate = true;
+        } else if (!isSolved && entry.bloom > 0) {
+          entry.bloom = 0;
+          for (let i = 0; i < BLOOMS_PER_QUEST; i += 1) {
+            const flower = solveFlowerData[entry.questIndex * BLOOMS_PER_QUEST + i];
+            bloomM4.compose(bloomP.set(flower.x, 0.5, flower.z), bloomQ, bloomS.setScalar(0.001));
+            solveBlooms.setMatrixAt(entry.questIndex * BLOOMS_PER_QUEST + i, bloomM4);
+          }
+          solveBlooms.instanceMatrix.needsUpdate = true;
         }
       });
 
