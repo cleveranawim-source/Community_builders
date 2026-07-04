@@ -23,7 +23,7 @@ import {
   HERO_PORTRAIT,
   TITLE_BG,
 } from "./data/index.js";
-import { uid } from "./lib/utils.js";
+import { uid, josa } from "./lib/utils.js";
 import "./styles.css";
 
 const HAIR_OPTIONS = [0x25314d, 0x3b2a20, 0x30223d, 0x2f2430];
@@ -228,7 +228,7 @@ function TeacherBoard() {
             <div className={row.done ? "teacher-row done" : "teacher-row"} key={row.id}>
               <span className="student">
                 <i style={{ background: row.color || "#94a3b8" }} />
-                {row.name || "이름없음"}
+                {row.name || "이름 없음"}
                 {row.done && <PartyPopper size={14} />}
               </span>
               <span>{row.solvedCount || 0}/{quests.length}</span>
@@ -354,6 +354,7 @@ function Game() {
   const [toast, setToast] = useState("");
   const [score, setScore] = useState({ self: 20, empathy: 20, relation: 20, community: 20 });
   const [endingDismissed, setEndingDismissed] = useState(false);
+  const [classRows, setClassRows] = useState(null);
 
   const fogsRef = useRef(fogs);
   const projectilesRef = useRef(projectiles);
@@ -388,7 +389,7 @@ function Game() {
   }, []);
 
   const handleBlocked = useCallback(() => {
-    setToast("길이 빛장벽에 막혔습니다. 스페이스(공감 빛구슬)로 깨고 지나가세요.");
+    setToast("길이 빛장벽에 막혔습니다. 공감 빛구슬로 깨뜨리고 지나가세요.");
   }, []);
 
   useEffect(() => {
@@ -565,6 +566,24 @@ function Game() {
     };
   }, [started, profile, user]);
 
+  // 우리 반 모드: 반 전체 진행을 구독해 '마을 밝기' 공동 목표를 계산
+  useEffect(() => {
+    if (!profile?.room) return undefined;
+    let unsub = null;
+    let cancelled = false;
+    import("./lib/firebase.js")
+      .then((fb) => {
+        if (cancelled) return;
+        unsub = fb.watchRoom(profile.room, (list) => setClassRows(list));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (unsub) unsub();
+      setClassRows(null);
+    };
+  }, [profile]);
+
   // 우리 반 모드: 진행 상황을 1초 디바운스로 Firestore에 기록
   useEffect(() => {
     if (!profile?.room) return undefined;
@@ -665,6 +684,18 @@ function Game() {
   const averageScore = Math.round(stats.reduce((sum, stat) => sum + score[stat.key], 0) / stats.length);
   const endingTitle = averageScore >= 85 ? "마을의 건축가" : averageScore >= 70 ? "공동체 정원사" : "따뜻한 탐험가";
 
+  // 우리 반 마을 밝기: 반 전체가 깬 장벽 합산 (목표 = 인원×30, 최소 맵 장벽 수)
+  const classBrightness = useMemo(() => {
+    if (!classRows || !classRows.length) return null;
+    const total = classRows.reduce((sum, row) => sum + (row.cleared || 0), 0);
+    const goal = Math.max(fogSeeds.length, classRows.length * 30);
+    return { total, ratio: Math.min(1, total / goal) };
+  }, [classRows]);
+
+  const personalProgress = (completed / quests.length) * 0.75 + (clearedFogCount / fogs.length) * 0.25;
+  // 반 모드에서는 반 전체 밝기와 개인 진행 중 더 밝은 쪽으로 안개가 걷힌다
+  const worldProgress = classBrightness ? Math.max(personalProgress, classBrightness.ratio) : personalProgress;
+
   const dialogView = activeQuest
     ? activeQuest.view || (solved[activeQuest.quest.id] ? "recap" : "ask")
     : null;
@@ -678,7 +709,7 @@ function Game() {
         runningRef={runningRef}
         solved={solved}
         discovered={discovered}
-        progress={(completed / quests.length) * 0.75 + (clearedFogCount / fogs.length) * 0.25}
+        progress={worldProgress}
         peers={peerList}
         projectiles={projectiles}
         onSync={handleSync}
@@ -730,6 +761,16 @@ function Game() {
           </div>
           {profile?.room && <div className="room-chip small">반 {profile.room}</div>}
         </div>
+        {classBrightness && (
+          <div
+            className="brightness-chip"
+            title={`우리 반이 함께 깨뜨린 빛장벽 ${classBrightness.total}개`}
+          >
+            <span>우리 반 마을 밝기</span>
+            <i><b style={{ width: `${Math.round(classBrightness.ratio * 100)}%` }} /></i>
+            <strong>{Math.round(classBrightness.ratio * 100)}%</strong>
+          </div>
+        )}
       </section>
 
       <section className="hud top-right">
@@ -804,7 +845,7 @@ function Game() {
                 <span>
                   {solved[nearQuest.id]
                     ? `${nearQuest.name}의 미션을 이미 해결했습니다.`
-                    : `${nearQuest.name}와 공동체 미션을 시작할 수 있습니다.`}
+                    : `${nearQuest.name}${josa(nearQuest.name, "과", "와")} 공동체 미션을 시작할 수 있습니다.`}
                 </span>
                 <button onClick={() => openQuest(nearQuest)}>
                   {solved[nearQuest.id] ? "다시 이야기하기" : "함께 해결하기 (E)"}

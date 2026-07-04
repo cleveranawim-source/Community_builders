@@ -19,7 +19,7 @@ export const stats = [
 
 export const playerPalette = ["#ffcf5a", "#38bdf8", "#8b5cf6", "#34d399", "#ff7a59", "#f472b6"];
 
-const barrierLabels = ["오해 장벽", "침묵 장벽", "불안 수정", "소외 수정", "무관심 장벽", "갈등 수정", "비난 장벽", "부담 수정"];
+const barrierLabels = ["오해 장벽", "침묵 장벽", "불안 장벽", "소외 장벽", "무관심 장벽", "갈등 장벽", "비난 장벽", "부담 장벽"];
 
 // 8겹 링 × 18개 = 144개 빛장벽 (반지름 10~62)
 export const fogSeeds = Array.from({ length: 144 }, (_, index) => {
