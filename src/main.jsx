@@ -328,8 +328,13 @@ function Game() {
     };
   }, []);
 
-  // 초기 방향은 카메라를 마주 보게(-3π/4), 스폰은 중앙 분수대 남쪽
-  const playerRef = useRef({ x: 0, z: 4, dir: -Math.PI * 0.75, moving: false });
+  // 30명이 동시에 시작해도 겹치지 않도록 광장 둘레 랜덤 지점에 스폰
+  const spawn = useMemo(() => {
+    const angle = Math.random() * Math.PI * 2;
+    return { x: Math.cos(angle) * 5.2, z: Math.sin(angle) * 5.2 };
+  }, []);
+  // 초기 방향은 카메라를 마주 보게(-3π/4)
+  const playerRef = useRef({ x: spawn.x, z: spawn.z, dir: -Math.PI * 0.75, moving: false });
   const inputRef = useRef({ keys: new Set(), joy: { x: 0, y: 0 } });
   const runningRef = useRef(false);
   if (import.meta.env.DEV) {
@@ -621,8 +626,8 @@ function Game() {
   };
 
   const reset = () => {
-    playerRef.current = { x: 0, z: 4, dir: -Math.PI * 0.75, moving: false };
-    setPlayerHud({ x: 0, z: 4, dir: 0 });
+    playerRef.current = { x: spawn.x, z: spawn.z, dir: -Math.PI * 0.75, moving: false };
+    setPlayerHud({ x: spawn.x, z: spawn.z, dir: 0 });
     setSolved({});
     setAnswered({});
     setDiscovered({});

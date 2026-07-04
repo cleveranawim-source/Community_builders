@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { quests, fogSeeds, HALF } from "./data/index.js";
 import { clamp } from "./lib/utils.js";
 
-const MOVE_SPEED = 8.2;
+const MOVE_SPEED = 9.2;
 const SYNC_INTERVAL = 140;
 
 const terrainColors = {
@@ -26,18 +26,16 @@ const terrainTopColors = {
 };
 
 const POOLS = [
-  { x: 16, z: -14, r: 5 },
-  { x: -13, z: 19, r: 5 },
+  { x: 22, z: -19, r: 6 },
+  { x: -18, z: 26, r: 6 },
 ];
 
-// 마을 집 위치(방사형 길·빛장벽과 겹치지 않는 각도에 배치, 문은 중앙 광장을 향함)
-const HOUSES = [
-  [15, 3, 0xf4a9a0],
-  [-15, 3, 0xa8d8f0],
-  [-5, -14, 0xb8e0b8],
-  [5, -13, 0xd7b8e8],
-  [-1, 13.5, 0xf0c8a0],
+// 마을 집 후보(방사형 길 사이 각도) — 아래에서 길·장벽·연못과 겹치지 않는 곳만 선별
+const HOUSE_CANDIDATES = [
+  [15, 3], [-15, 3], [-5, -14], [5, -13], [-1, 13.5], [16, -2], [-16, -2], [13, 10],
+  [34.3, 6.9], [-34.5, 6.1], [-6.3, 34.4], [12, 32.9], [8.2, -34], [-12.8, -32.6], [-33.3, -10.8], [27.2, -22],
 ];
+const HOUSE_COLORS = [0xf4a9a0, 0xa8d8f0, 0xf7d794, 0xb8e0b8, 0xd7b8e8, 0xf0c8a0];
 
 function groundHeight(x, z) {
   return Math.sin(x * 0.8) * Math.cos(z * 0.7) * 0.08;
@@ -59,11 +57,14 @@ function computeTerrainData() {
       stamp(Math.round((qx * i) / steps), Math.round((qz * i) / steps));
     }
   });
-  const ringSteps = 220;
-  for (let i = 0; i < ringSteps; i += 1) {
-    const angle = (i / ringSteps) * Math.PI * 2;
-    stamp(Math.round(Math.cos(angle) * 24), Math.round(Math.sin(angle) * 24));
-  }
+  // 내측·외측 순환로
+  [24, 46].forEach((ringRadius) => {
+    const ringSteps = Math.ceil(ringRadius * 9);
+    for (let i = 0; i < ringSteps; i += 1) {
+      const angle = (i / ringSteps) * Math.PI * 2;
+      stamp(Math.round(Math.cos(angle) * ringRadius), Math.round(Math.sin(angle) * ringRadius));
+    }
+  });
 
   const tiles = [];
   const waterSet = new Set();
@@ -75,7 +76,7 @@ function computeTerrainData() {
       const inPool = POOLS.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < p.r * p.r);
       const nearPool = POOLS.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < (p.r + 1.8) ** 2);
       let type = "grass";
-      if ((x + 30) ** 2 + (z - 33) ** 2 < 70 || (x - 31) ** 2 + (z - 30) ** 2 < 55) type = "moss";
+      if ((x + 41) ** 2 + (z - 45) ** 2 < 110 || (x - 42) ** 2 + (z - 41) ** 2 < 90) type = "moss";
       if (onPath) type = "path";
       if (d <= 7) type = "plaza";
       if (nearPool && !inPool && !onPath && d > 7) type = "sand";
@@ -94,6 +95,29 @@ function computeTerrainData() {
 }
 
 const TERRAIN = computeTerrainData();
+
+// 길·연못·거점·빛장벽·이웃 집과 겹치지 않는 후보만 집으로 확정
+function isHouseSpotFree(x, z, placed) {
+  const rx = Math.round(x);
+  const rz = Math.round(z);
+  for (let dx = -2; dx <= 2; dx += 1) {
+    for (let dz = -2; dz <= 2; dz += 1) {
+      if (TERRAIN.pathSet.has(`${rx + dx},${rz + dz}`)) return false;
+    }
+  }
+  if (POOLS.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + 3.5)) return false;
+  if (quests.some((q) => Math.hypot(x - q.pos[0], z - q.pos[1]) < 6)) return false;
+  if (fogSeeds.some((f) => Math.hypot(x - f.x, z - f.z) < 3.4)) return false;
+  if (placed.some((h) => Math.hypot(x - h[0], z - h[1]) < 7)) return false;
+  return true;
+}
+
+const HOUSES = HOUSE_CANDIDATES.reduce((placed, [x, z], index) => {
+  if (placed.length < 9 && isHouseSpotFree(x, z, placed)) {
+    placed.push([x, z, HOUSE_COLORS[index % HOUSE_COLORS.length]]);
+  }
+  return placed;
+}, []);
 
 function mat(color, options = {}) {
   return new THREE.MeshStandardMaterial({
@@ -503,10 +527,10 @@ function buildDecorations(scene) {
       arr.push([x, z, rand()]);
     }
   };
-  scatter(52, trees, 3);
-  scatter(26, bushes, 2.4);
-  scatter(16, rocks, 3);
-  scatter(46, flowers, 1.6);
+  scatter(110, trees, 3);
+  scatter(55, bushes, 2.4);
+  scatter(34, rocks, 3);
+  scatter(95, flowers, 1.6);
 
   const matrix = new THREE.Matrix4();
   const quat = new THREE.Quaternion();
@@ -588,11 +612,15 @@ function buildDecorations(scene) {
   bloomMesh.castShadow = true;
   scene.add(stemMesh, bloomMesh);
 
-  // 순환로 바깥 가로등
-  for (let i = 0; i < 12; i += 1) {
-    const angle = (i / 12) * Math.PI * 2 + Math.PI / 12;
-    const x = Math.cos(angle) * 26.4;
-    const z = Math.sin(angle) * 26.4;
+  // 순환로 바깥 가로등 (내측·외측)
+  const lanternSpots = [];
+  [[26.4, 12], [48.4, 16]].forEach(([radius, count]) => {
+    for (let i = 0; i < count; i += 1) {
+      const angle = (i / count) * Math.PI * 2 + Math.PI / count;
+      lanternSpots.push([Math.cos(angle) * radius, Math.sin(angle) * radius]);
+    }
+  });
+  for (const [x, z] of lanternSpots) {
     if (isDecorBlocked(x, z)) continue;
     const lantern = new THREE.Group();
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 1.5, 8), mat(0x5b4a3a, { roughness: 0.85 }));
