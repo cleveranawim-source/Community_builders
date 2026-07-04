@@ -1,0 +1,550 @@
+import React, { useEffect, useRef } from "react";
+import * as THREE from "three";
+import { quests, fogSeeds, HALF } from "./data/index.js";
+import { clamp } from "./lib/utils.js";
+
+const MOVE_SPEED = 8.2;
+const SYNC_INTERVAL = 140;
+
+const terrainColors = {
+  grass: 0x72d36b,
+  moss: 0x9bea7e,
+  sand: 0xf0cf80,
+  water: 0x5bc7f0,
+  path: 0xdcb887,
+};
+
+function mat(color, options = {}) {
+  return new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.68,
+    metalness: 0.02,
+    ...options,
+  });
+}
+
+function createCharacterModel({ color, hair = 0x26314d, player = false }) {
+  const group = new THREE.Group();
+  const skin = mat(0xffd9bd, { roughness: 0.78 });
+  const outfit = mat(color, { roughness: 0.58 });
+  const pants = mat(0x26324a, { roughness: 0.72 });
+  const hairMat = mat(hair, { roughness: 0.84 });
+  const eyeMat = mat(0x152033, { roughness: 0.45 });
+  const smileMat = mat(0xc65b66, { roughness: 0.5 });
+
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.58, 40),
+    new THREE.MeshBasicMaterial({ color: 0x223044, transparent: true, opacity: 0.18 })
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.035;
+
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.72, 8, 18), outfit);
+  body.position.y = 0.94;
+  body.scale.set(0.96, 1.04, 0.78);
+  body.castShadow = true;
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.38, 32, 24), skin);
+  head.position.y = 1.68;
+  head.scale.set(1.02, 1.05, 0.96);
+  head.castShadow = true;
+
+  const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.405, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.55), hairMat);
+  hairCap.position.y = 1.82;
+  hairCap.scale.set(1.04, 0.74, 1.02);
+  hairCap.castShadow = true;
+
+  const bang = new THREE.Mesh(new THREE.SphereGeometry(0.18, 20, 12), hairMat);
+  bang.position.set(player ? -0.13 : 0.13, 1.83, -0.27);
+  bang.scale.set(1.35, 0.7, 0.8);
+  bang.castShadow = true;
+
+  const armGeo = new THREE.CapsuleGeometry(0.09, 0.55, 8, 12);
+  const leftArm = new THREE.Mesh(armGeo, skin);
+  leftArm.position.set(-0.42, 0.98, -0.02);
+  leftArm.rotation.z = 0.22;
+  leftArm.castShadow = true;
+  const rightArm = new THREE.Mesh(armGeo, skin);
+  rightArm.position.set(0.42, 0.98, -0.02);
+  rightArm.rotation.z = -0.22;
+  rightArm.castShadow = true;
+
+  const legGeo = new THREE.CapsuleGeometry(0.105, 0.46, 8, 12);
+  const leftLeg = new THREE.Mesh(legGeo, pants);
+  leftLeg.position.set(-0.16, 0.35, 0);
+  leftLeg.castShadow = true;
+  const rightLeg = new THREE.Mesh(legGeo, pants);
+  rightLeg.position.set(0.16, 0.35, 0);
+  rightLeg.castShadow = true;
+
+  const eyeGeo = new THREE.SphereGeometry(0.035, 12, 8);
+  const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+  leftEye.position.set(-0.13, 1.7, -0.335);
+  const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+  rightEye.position.set(0.13, 1.7, -0.335);
+
+  const smile = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.012, 8, 24, Math.PI), smileMat);
+  smile.position.set(0, 1.57, -0.34);
+  smile.rotation.set(0, 0, Math.PI);
+
+  const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.29, 0.035, 12, 40), mat(0xffffff, { roughness: 0.42 }));
+  scarf.position.y = 1.32;
+  scarf.scale.set(1, 0.18, 0.82);
+
+  group.add(shadow, leftLeg, rightLeg, body, scarf, leftArm, rightArm, head, hairCap, bang, leftEye, rightEye, smile);
+  group.scale.setScalar(player ? 1.02 : 0.94);
+  return group;
+}
+
+function createFogModel() {
+  const group = new THREE.Group();
+  const crystalMat = mat(0x6d7488, {
+    roughness: 0.24,
+    transparent: true,
+    opacity: 0.86,
+    emissive: new THREE.Color(0x7c8cff),
+    emissiveIntensity: 0.26,
+  });
+  const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.78, 1), crystalMat);
+  core.scale.set(0.9, 1.45, 0.9);
+  core.position.y = 0.15;
+  core.castShadow = true;
+  const shardA = new THREE.Mesh(new THREE.OctahedronGeometry(0.48, 0), crystalMat);
+  shardA.position.set(-0.62, -0.05, 0.08);
+  shardA.scale.set(0.75, 1.25, 0.75);
+  shardA.rotation.z = -0.34;
+  shardA.castShadow = true;
+  const shardB = new THREE.Mesh(new THREE.OctahedronGeometry(0.42, 0), crystalMat);
+  shardB.position.set(0.58, -0.08, -0.06);
+  shardB.scale.set(0.72, 1.1, 0.72);
+  shardB.rotation.z = 0.28;
+  shardB.castShadow = true;
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.98, 0.035, 10, 64),
+    mat(0x9aa3b8, { transparent: true, opacity: 0.62, emissive: new THREE.Color(0x8ba0ff), emissiveIntensity: 0.35 })
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = -0.54;
+  group.add(core, shardA, shardB, ring);
+  group.position.y = 1.05;
+  return group;
+}
+
+function makeTerrain() {
+  const tiles = [];
+  for (let x = -HALF; x <= HALF; x += 1) {
+    for (let z = -HALF; z <= HALF; z += 1) {
+      const d = Math.sqrt(x * x + z * z);
+      if (d > HALF + 0.6) continue;
+      let type = "grass";
+      if (d > HALF - 1.5) type = "sand";
+      if (
+        Math.abs(x) <= 1 ||
+        Math.abs(z) <= 1 ||
+        Math.abs(x - z) <= 1 ||
+        Math.abs(x + z) <= 1 ||
+        Math.abs(x - 28) <= 1 ||
+        Math.abs(z + 28) <= 1
+      ) type = "path";
+      if ((x + 30) ** 2 + (z - 33) ** 2 < 70 || (x - 31) ** 2 + (z - 30) ** 2 < 55) type = "moss";
+      if ((x - 34) ** 2 + (z + 30) ** 2 < 64 || (x + 35) ** 2 + (z + 28) ** 2 < 50) type = "water";
+      const height = type === "water" ? -0.08 : Math.sin(x * 0.8) * Math.cos(z * 0.7) * 0.08;
+      tiles.push({ x, z, type, height });
+    }
+  }
+  return tiles;
+}
+
+// 지형은 타일 수천 개를 InstancedMesh로 묶어 드로우콜과 재질 수를 최소화한다.
+function buildTerrain(scene) {
+  const tiles = makeTerrain();
+  const blockGeo = new THREE.BoxGeometry(1, 0.42, 1);
+  const edgeGeo = new THREE.BoxGeometry(0.92, 0.035, 0.92);
+  const matrix = new THREE.Matrix4();
+
+  const byType = { grass: [], moss: [], sand: [], water: [], path: [] };
+  tiles.forEach((tile) => byType[tile.type].push(tile));
+
+  Object.entries(byType).forEach(([type, group]) => {
+    if (!group.length) return;
+    const isWater = type === "water";
+    const material = mat(terrainColors[type], {
+      roughness: isWater ? 0.26 : 0.78,
+      metalness: isWater ? 0.02 : 0,
+      ...(isWater
+        ? { transparent: true, opacity: 0.68, emissive: new THREE.Color(0x1b7fb3), emissiveIntensity: 0.1 }
+        : {}),
+    });
+    const instanced = new THREE.InstancedMesh(blockGeo, material, group.length);
+    group.forEach((tile, i) => {
+      matrix.setPosition(tile.x, tile.height, tile.z);
+      instanced.setMatrixAt(i, matrix);
+    });
+    instanced.receiveShadow = true;
+    instanced.castShadow = !isWater;
+    scene.add(instanced);
+  });
+
+  const pathTops = byType.path;
+  const grassTops = [...byType.grass, ...byType.moss, ...byType.sand];
+  [[pathTops, 0xe6c794], [grassTops, 0x91dd78]].forEach(([group, color]) => {
+    if (!group.length) return;
+    const instanced = new THREE.InstancedMesh(edgeGeo, mat(color, { roughness: 0.82 }), group.length);
+    group.forEach((tile, i) => {
+      matrix.setPosition(tile.x, tile.height + 0.23, tile.z);
+      instanced.setMatrixAt(i, matrix);
+    });
+    instanced.receiveShadow = true;
+    scene.add(instanced);
+  });
+}
+
+function buildDecorations(scene) {
+  const treeTrunk = new THREE.CylinderGeometry(0.16, 0.2, 1.3, 8);
+  const treeTop = new THREE.SphereGeometry(0.68, 18, 14);
+  const trunkMat = mat(0x8b6138, { roughness: 0.9 });
+  const leafMat = mat(0x4fae68, { roughness: 0.82 });
+  [
+    [-13, -2], [-12, 6], [-10, 13], [-7, 2], [-6, 6], [-4, -12], [-2, -7],
+    [2, 7], [4, -14], [7, 1], [7, -6], [9, 13], [12, -2], [13, 6],
+  ].forEach(([x, z]) => {
+    const trunk = new THREE.Mesh(treeTrunk, trunkMat);
+    trunk.position.set(x, 0.8, z);
+    trunk.castShadow = true;
+    const leaf = new THREE.Mesh(treeTop, leafMat);
+    leaf.position.set(x, 1.8, z);
+    leaf.scale.set(1, 0.92, 1);
+    leaf.castShadow = true;
+    scene.add(trunk, leaf);
+  });
+
+  const flowerMat = [mat(0xff8fab), mat(0xffd166), mat(0x8b5cf6), mat(0x7dd3fc)];
+  const stemGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.28, 6);
+  const bloomGeo = new THREE.SphereGeometry(0.105, 10, 8);
+  const stemMat = mat(0x3d9b5d);
+  [[-12, 4], [-8, -6], [-3, -2], [-2, 3], [3, -5], [6, 2], [-6, -1], [1, 6], [5, -1], [8, 8], [12, -7], [-10, 10]].forEach(([x, z], i) => {
+    const stem = new THREE.Mesh(stemGeo, stemMat);
+    stem.position.set(x + 0.18, 0.48, z - 0.16);
+    const bloom = new THREE.Mesh(bloomGeo, flowerMat[i % flowerMat.length]);
+    bloom.position.set(x + 0.18, 0.66, z - 0.16);
+    bloom.castShadow = true;
+    scene.add(stem, bloom);
+  });
+}
+
+function disposeScene(scene, renderer) {
+  const geometries = new Set();
+  const materials = new Set();
+  scene.traverse((obj) => {
+    if (obj.geometry) geometries.add(obj.geometry);
+    if (obj.material) {
+      (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach((m) => materials.add(m));
+    }
+  });
+  geometries.forEach((g) => g.dispose());
+  materials.forEach((m) => m.dispose());
+  renderer.dispose();
+}
+
+export default function GameWorld({
+  playerRef,
+  inputRef,
+  fogsRef,
+  runningRef,
+  solved,
+  peers,
+  projectiles,
+  onSync,
+  onBlocked,
+}) {
+  const mountRef = useRef(null);
+  const sceneRef = useRef(null);
+  const questRefs = useRef(new globalThis.Map());
+  const peerRefs = useRef(new globalThis.Map());
+  const fogRefs = useRef(new globalThis.Map());
+  const projectileRefs = useRef(new globalThis.Map());
+  const onSyncRef = useRef(onSync);
+  const onBlockedRef = useRef(onBlocked);
+
+  onSyncRef.current = onSync;
+  onBlockedRef.current = onBlocked;
+
+  useEffect(() => {
+    if (!mountRef.current) return undefined;
+
+    const mount = mountRef.current;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xcdeeff);
+    scene.fog = new THREE.Fog(0xcdeeff, 42, 130);
+
+    const aspect = mount.clientWidth / mount.clientHeight || 1;
+    const cameraSize = 18.5;
+    const camera = new THREE.OrthographicCamera(
+      (-cameraSize * aspect) / 2,
+      (cameraSize * aspect) / 2,
+      cameraSize / 2,
+      -cameraSize / 2,
+      0.1,
+      100
+    );
+    camera.position.set(7.8, 8.4, 7.8);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.setSize(mount.clientWidth, mount.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.12;
+    mount.appendChild(renderer.domElement);
+
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x6c7a5c, 2.4);
+    scene.add(hemi);
+    const sun = new THREE.DirectionalLight(0xfff3df, 3.4);
+    sun.position.set(8, 14, 9);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -24;
+    sun.shadow.camera.right = 24;
+    sun.shadow.camera.top = 24;
+    sun.shadow.camera.bottom = -24;
+    scene.add(sun);
+    scene.add(sun.target);
+    const rim = new THREE.DirectionalLight(0x88c7ff, 1.3);
+    rim.position.set(-8, 6, -8);
+    scene.add(rim);
+
+    buildTerrain(scene);
+    buildDecorations(scene);
+
+    const playerGroup = createCharacterModel({ color: 0xffcf5a, hair: 0x25314d, player: true });
+    scene.add(playerGroup);
+
+    questRefs.current.clear();
+    quests.forEach((quest) => {
+      const group = new THREE.Group();
+      group.position.set(quest.pos[0], 0.22, quest.pos[1]);
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.82, 0.28, 24), mat(quest.colorNum, { roughness: 0.62 }));
+      base.castShadow = true;
+      const character = createCharacterModel({ color: quest.colorNum, hair: quest.hairNum });
+
+      const gem = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.28),
+        mat(0xffffff, { emissive: new THREE.Color(quest.colorNum), emissiveIntensity: 0.7, roughness: 0.28 })
+      );
+      gem.position.y = 2.38;
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.88, 0.025, 10, 72),
+        mat(quest.colorNum, { emissive: new THREE.Color(quest.colorNum), emissiveIntensity: 0.25 })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 0.2;
+      group.add(base, ring, character, gem);
+      scene.add(group);
+      questRefs.current.set(quest.id, { group, gem, ring, character });
+    });
+
+    fogRefs.current.clear();
+    fogSeeds.forEach((fog) => {
+      const group = createFogModel();
+      group.position.x = fog.x;
+      group.position.z = fog.z;
+      scene.add(group);
+      fogRefs.current.set(fog.id, group);
+    });
+
+    const clouds = new THREE.Group();
+    const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7 });
+    [[-13, 8, -9], [-8, 8, -6], [5, 9, -8], [9, 7, 3], [13, 8, 10]].forEach(([x, y, z]) => {
+      const cloud = new THREE.Group();
+      [0, 0.7, -0.7].forEach((offset, i) => {
+        const puff = new THREE.Mesh(new THREE.SphereGeometry(0.62 - i * 0.06, 16, 10), cloudMat);
+        puff.position.x = offset;
+        puff.scale.set(1.45, 0.48, 0.72);
+        cloud.add(puff);
+      });
+      cloud.position.set(x, y, z);
+      clouds.add(cloud);
+    });
+    scene.add(clouds);
+
+    sceneRef.current = { scene, camera, renderer };
+
+    const onResize = () => {
+      if (!mount.clientWidth || !mount.clientHeight) return;
+      const nextAspect = mount.clientWidth / mount.clientHeight;
+      camera.left = (-cameraSize * nextAspect) / 2;
+      camera.right = (cameraSize * nextAspect) / 2;
+      camera.top = cameraSize / 2;
+      camera.bottom = -cameraSize / 2;
+      camera.updateProjectionMatrix();
+      renderer.setSize(mount.clientWidth, mount.clientHeight);
+    };
+    window.addEventListener("resize", onResize);
+
+    // 이동 물리 + 카메라 추적 + 연출을 단일 rAF 루프에서 처리한다.
+    let raf = 0;
+    let last = performance.now();
+    let lastSync = 0;
+    let lastBlockedToast = 0;
+    const camTarget = new THREE.Vector3();
+
+    const animate = () => {
+      raf = requestAnimationFrame(animate);
+      const now = performance.now();
+      const dt = Math.min((now - last) / 1000, 0.05);
+      last = now;
+      const t = now * 0.001;
+      const player = playerRef.current;
+
+      if (runningRef.current) {
+        const input = inputRef.current;
+        let ix = input.joy.x;
+        let iy = input.joy.y;
+        if (input.keys.has("up")) iy -= 1;
+        if (input.keys.has("down")) iy += 1;
+        if (input.keys.has("left")) ix -= 1;
+        if (input.keys.has("right")) ix += 1;
+        const len = Math.hypot(ix, iy);
+        if (len > 0.05) {
+          const nx = ix / Math.max(len, 1);
+          const ny = iy / Math.max(len, 1);
+          // 화면 기준 입력을 아이소메트릭 월드 축으로 변환 (화면 위 = 월드 -x,-z)
+          const wx = (nx + ny) / Math.SQRT2;
+          const wz = (ny - nx) / Math.SQRT2;
+          const tx = clamp(player.x + wx * MOVE_SPEED * dt, -HALF + 1, HALF - 1);
+          const tz = clamp(player.z + wz * MOVE_SPEED * dt, -HALF + 1, HALF - 1);
+          const blocked = fogsRef.current.some(
+            (fog) => !fog.cleared && Math.hypot(fog.x - tx, fog.z - tz) < 1.65
+          );
+          if (blocked) {
+            if (now - lastBlockedToast > 1600) {
+              lastBlockedToast = now;
+              onBlockedRef.current?.();
+            }
+          } else {
+            player.x = tx;
+            player.z = tz;
+          }
+          player.dir = Math.atan2(wx, -wz);
+          player.moving = true;
+        } else {
+          player.moving = false;
+        }
+      }
+
+      playerGroup.position.set(player.x, player.moving ? Math.abs(Math.sin(t * 10)) * 0.08 : 0, player.z);
+      playerGroup.rotation.y = player.dir;
+
+      camTarget.set(player.x + 7.8, 8.4, player.z + 7.8);
+      camera.position.lerp(camTarget, 0.16);
+      camera.lookAt(camera.position.x - 7.8, 0.9, camera.position.z - 7.8);
+
+      sun.position.set(player.x + 8, 14, player.z + 9);
+      sun.target.position.set(player.x, 0, player.z);
+
+      clouds.position.x = player.x * 0.7 + Math.sin(t * 0.08) * 0.8;
+      clouds.position.z = player.z * 0.7;
+
+      questRefs.current.forEach(({ gem, group, ring }, id) => {
+        gem.rotation.y += 0.025;
+        gem.position.y = 2.38 + Math.sin(t * 2.2 + id.length) * 0.12;
+        ring.rotation.z += 0.006;
+        group.rotation.y = Math.sin(t * 0.8 + id.length) * 0.035;
+      });
+
+      fogsRef.current.forEach((fog) => {
+        const group = fogRefs.current.get(fog.id);
+        if (!group) return;
+        group.visible = !fog.cleared;
+        if (!fog.cleared) group.scale.setScalar(1 + Math.sin(t * 1.6 + fog.x) * 0.05);
+      });
+
+      if (now - lastSync > SYNC_INTERVAL) {
+        lastSync = now;
+        onSyncRef.current?.({ x: player.x, z: player.z, dir: player.dir });
+      }
+
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onResize);
+      disposeScene(scene, renderer);
+      if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
+      sceneRef.current = null;
+      peerRefs.current.clear();
+      projectileRefs.current.clear();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    quests.forEach((quest) => {
+      const entry = questRefs.current.get(quest.id);
+      if (entry) {
+        entry.group.scale.setScalar(solved[quest.id] ? 0.72 : 1);
+        entry.gem.material.emissiveIntensity = solved[quest.id] ? 1.4 : 0.55;
+      }
+    });
+  }, [solved]);
+
+  useEffect(() => {
+    const world = sceneRef.current;
+    if (!world) return;
+    const liveIds = new Set(peers.map((peer) => peer.id));
+
+    peers.forEach((peer) => {
+      let group = peerRefs.current.get(peer.id);
+      if (!group) {
+        group = createCharacterModel({ color: parseInt(String(peer.color).replace("#", ""), 16) || 0x38bdf8, hair: peer.hair || 0x26314d });
+        world.scene.add(group);
+        peerRefs.current.set(peer.id, group);
+      }
+      group.position.set(peer.player.x, 0, peer.player.z);
+      group.rotation.y = peer.player.dir;
+    });
+
+    peerRefs.current.forEach((group, id) => {
+      if (!liveIds.has(id)) {
+        world.scene.remove(group);
+        peerRefs.current.delete(id);
+      }
+    });
+  }, [peers]);
+
+  useEffect(() => {
+    const world = sceneRef.current;
+    if (!world) return;
+    const liveIds = new Set(projectiles.map((projectile) => projectile.id));
+
+    projectiles.forEach((projectile) => {
+      let mesh = projectileRefs.current.get(projectile.id);
+      if (!mesh) {
+        mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(0.18, 18, 14),
+          mat(0xfff7a8, {
+            roughness: 0.18,
+            emissive: new THREE.Color(0xffd166),
+            emissiveIntensity: 1.4,
+          })
+        );
+        mesh.castShadow = true;
+        world.scene.add(mesh);
+        projectileRefs.current.set(projectile.id, mesh);
+      }
+      mesh.position.set(projectile.x, 1.05, projectile.z);
+    });
+
+    projectileRefs.current.forEach((mesh, id) => {
+      if (!liveIds.has(id)) {
+        world.scene.remove(mesh);
+        projectileRefs.current.delete(id);
+      }
+    });
+  }, [projectiles]);
+
+  return <div className="world-canvas" ref={mountRef} aria-label="복셀 공동체 탐험 월드" />;
+}
