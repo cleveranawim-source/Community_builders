@@ -827,6 +827,7 @@ export default function GameWorld({
   inputRef,
   fogsRef,
   treasuresRef,
+  boostUntilRef,
   runningRef,
   solved,
   discovered,
@@ -1056,8 +1057,10 @@ export default function GameWorld({
           // 화면 기준 입력을 아이소메트릭 월드 축으로 변환 (화면 위 = 월드 -x,-z)
           const wx = (nx + ny) / Math.SQRT2;
           const wz = (ny - nx) / Math.SQRT2;
-          const tx = clamp(player.x + wx * MOVE_SPEED * dt, -HALF + 1, HALF - 1);
-          const tz = clamp(player.z + wz * MOVE_SPEED * dt, -HALF + 1, HALF - 1);
+          // 반짝 부스트 중이면 1.5배 속도
+          const speed = MOVE_SPEED * (boostUntilRef?.current > Date.now() ? 1.5 : 1);
+          const tx = clamp(player.x + wx * speed * dt, -HALF + 1, HALF - 1);
+          const tz = clamp(player.z + wz * speed * dt, -HALF + 1, HALF - 1);
           const blocked = fogsRef.current.some(
             (fog) => !fog.cleared && Math.hypot(fog.x - tx, fog.z - tz) < 1.65
           );

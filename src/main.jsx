@@ -24,12 +24,35 @@ import {
   TITLE_BG,
 } from "./data/index.js";
 import { uid, josa } from "./lib/utils.js";
+import { initAudio, sfx, getMuted, setMuted } from "./lib/sound.js";
 import "./styles.css";
 
 const HAIR_OPTIONS = [0x25314d, 0x3b2a20, 0x30223d, 0x2f2430];
 
 function statOf(key) {
   return stats.find((s) => s.key === key);
+}
+
+// 역량별 문항 수가 달라도 만점(20+72=92)이 같도록 획득량을 정규화한다
+const QUEST_STAT_COUNT = quests.reduce((acc, q) => {
+  acc[q.stat] = (acc[q.stat] || 0) + 1;
+  return acc;
+}, {});
+const gainForStat = (stat) => Math.round(72 / (QUEST_STAT_COUNT[stat] || 4));
+
+// 진행 자동 저장 (새로고침해도 이어서 하기)
+const SAVE_KEY = "cb_save_v1";
+
+function loadSave() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    const save = JSON.parse(raw);
+    if (!save?.profile?.name || !save?.user?.id) return null;
+    return save;
+  } catch {
+    return null;
+  }
 }
 
 function Joystick({ inputRef }) {
@@ -80,13 +103,14 @@ function Joystick({ inputRef }) {
   );
 }
 
-function IntroScreen({ onStart }) {
+function IntroScreen({ onStart, onContinue, savedGame }) {
   const [name, setName] = useState("");
   const [room, setRoom] = useState("");
 
   const start = () => {
     onStart(name.trim() || `탐험가${Math.floor(Math.random() * 90) + 10}`, room.trim().toUpperCase());
   };
+  const savedSolved = savedGame ? Object.values(savedGame.solved || {}).filter(Boolean).length : 0;
 
   return (
     <section className="intro-layer" style={{ backgroundImage: `url(${TITLE_BG})` }}>
@@ -113,8 +137,13 @@ function IntroScreen({ onStart }) {
             onKeyDown={(event) => event.key === "Enter" && start()}
           />
         </div>
+        {savedGame && (
+          <button className="intro-continue" onClick={onContinue}>
+            이어서 하기 — {savedGame.profile.name} · 미션 {savedSolved}/{quests.length}
+          </button>
+        )}
         <button className="intro-start" onClick={start}>
-          <Sparkles size={18} /> 모험 시작
+          <Sparkles size={18} /> {savedGame ? "새로 시작" : "모험 시작"}
         </button>
         <p className="intro-help">
           PC: WASD·화살표 이동 / 스페이스 빛구슬 / E 대화 · 모바일: 조이스틱
@@ -167,6 +196,33 @@ function TeacherBoard() {
   const avg = (key) =>
     rows.length ? Math.round(rows.reduce((sum, row) => sum + (row.score?.[key] || 0), 0) / rows.length) : 0;
 
+  // 수업 기록용 CSV 내보내기 (엑셀 한글 호환 BOM 포함)
+  const exportCsv = () => {
+    const header = ["이름", "미션 해결", "거점 발견", "빛장벽(누적)", "마음 조각", "에너지", "마음알기", "서로듣기", "관계잇기", "마을세우기", "마을 완성"];
+    const lines = sorted.map((row) => [
+      row.name || "",
+      row.solvedCount || 0,
+      row.found || 0,
+      row.cleared || 0,
+      row.gems || 0,
+      row.energy || 0,
+      row.score?.self || 0,
+      row.score?.empathy || 0,
+      row.score?.relation || 0,
+      row.score?.community || 0,
+      row.done ? "O" : "",
+    ]);
+    const csv = "﻿" + [header, ...lines]
+      .map((cells) => cells.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `공동체빌더스_${active}_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
   return (
     <main className="teacher-shell">
       <header className="teacher-head">
@@ -195,6 +251,9 @@ function TeacherBoard() {
           새 코드 만들기
         </button>
         {active && <span className="room-chip">참여 코드: {active}</span>}
+        {active && rows.length > 0 && (
+          <button className="ghost" onClick={exportCsv}>CSV 내보내기</button>
+        )}
       </section>
 
       {error && <p className="teacher-error">{error}</p>}
@@ -317,18 +376,20 @@ function saveResultCard({ name, score, energy, cleared, gems, title }) {
   link.click();
 }
 
+function makeUser() {
+  const index = Math.floor(Math.random() * playerPalette.length);
+  return {
+    id: uid(),
+    color: playerPalette[index],
+    hair: HAIR_OPTIONS[index % 4],
+  };
+}
+
 function Game() {
   const [profile, setProfile] = useState(null);
+  const [user, setUser] = useState(null);
+  const [savedGame] = useState(loadSave);
   const started = !!profile;
-
-  const user = useMemo(() => {
-    const index = Math.floor(Math.random() * playerPalette.length);
-    return {
-      id: uid(),
-      color: playerPalette[index],
-      hair: HAIR_OPTIONS[index % 4],
-    };
-  }, []);
 
   // 30명이 동시에 시작해도 겹치지 않도록 광장 둘레 랜덤 지점에 스폰
   const spawn = useMemo(() => {
@@ -340,7 +401,7 @@ function Game() {
   const inputRef = useRef({ keys: new Set(), joy: { x: 0, y: 0 } });
   const runningRef = useRef(false);
   if (import.meta.env.DEV) {
-    globalThis.__cbDebug = { playerRef, inputRef, runningRef, treasureSeeds };
+    globalThis.__cbDebug = { ...globalThis.__cbDebug, playerRef, inputRef, runningRef, treasureSeeds };
   }
 
   const [playerHud, setPlayerHud] = useState({ x: 0, z: 0, dir: 0 });
@@ -358,6 +419,15 @@ function Game() {
   const [score, setScore] = useState({ self: 20, empathy: 20, relation: 20, community: 20 });
   const [endingDismissed, setEndingDismissed] = useState(false);
   const [classRows, setClassRows] = useState(null);
+  // 누적 기록: '다시 시작'해도 줄지 않는다 (반 밝기·교사 화면용)
+  const [lifetimeCleared, setLifetimeCleared] = useState(0);
+  const [lifetimeGems, setLifetimeGems] = useState(0);
+  const prevClearedRef = useRef(0);
+  const prevGemsRef = useRef(0);
+  // 반짝 부스트: 만료 시각(Date.now 기준)
+  const boostUntilRef = useRef(0);
+  const [boostLeft, setBoostLeft] = useState(0);
+  const [muted, setMutedState] = useState(getMuted);
 
   const fogsRef = useRef(fogs);
   const treasuresRef = useRef(treasures);
@@ -382,6 +452,79 @@ function Game() {
     treasuresRef.current = treasures;
   }, [treasures]);
 
+  // 누적 카운터: 증가분만 더한다 (리셋으로 0이 되어도 누적은 유지)
+  // 주의: 델타는 반드시 지역 변수로 먼저 캡처한다 — setState 업데이터 안에서
+  // ref.current를 직접 읽으면, 업데이터가 실행되는 시점엔 이미 아래에서
+  // ref가 최신값으로 덮어써진 뒤라 delta가 항상 0이 되는 버그가 있었다.
+  useEffect(() => {
+    const prev = prevClearedRef.current;
+    if (clearedFogCount > prev) {
+      setLifetimeCleared((v) => v + clearedFogCount - prev);
+    }
+    prevClearedRef.current = clearedFogCount;
+  }, [clearedFogCount]);
+
+  if (import.meta.env.DEV) {
+    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef };
+  }
+
+  useEffect(() => {
+    const prev = prevGemsRef.current;
+    if (treasureCount > prev) {
+      setLifetimeGems((v) => v + treasureCount - prev);
+    }
+    prevGemsRef.current = treasureCount;
+  }, [treasureCount]);
+
+  // 부스트 잔여 시간 표시
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      const left = Math.max(0, Math.ceil((boostUntilRef.current - Date.now()) / 1000));
+      setBoostLeft((prev) => (prev === left ? prev : left));
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  // 진행 자동 저장: 최신 상태를 담는 저장 함수를 렌더마다 갱신해 두고,
+  // 상태 변화 시 0.8초 디바운스 + 4초 주기 저장(이동 중 위치 보존)을 병행한다
+  const saveNowRef = useRef(() => {});
+  saveNowRef.current = () => {
+    if (!started || !user) return;
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify({
+        v: 1,
+        savedAt: Date.now(),
+        profile,
+        user,
+        solved,
+        answered,
+        discovered,
+        cleared: fogs.filter((f) => f.cleared).map((f) => f.id),
+        found: treasures.filter((t) => t.found).map((t) => t.id),
+        energy,
+        score,
+        endingDismissed,
+        lifetimeCleared,
+        lifetimeGems,
+        pos: { x: playerRef.current.x, z: playerRef.current.z },
+      }));
+    } catch {
+      // 저장 공간 부족 등은 무시
+    }
+  };
+
+  useEffect(() => {
+    if (!started || !user) return undefined;
+    const timer = window.setTimeout(() => saveNowRef.current(), 800);
+    return () => window.clearTimeout(timer);
+  }, [started, user, profile, solved, answered, discovered, fogs, treasures, energy, score, endingDismissed, lifetimeCleared, lifetimeGems]);
+
+  useEffect(() => {
+    if (!started || !user) return undefined;
+    const interval = window.setInterval(() => saveNowRef.current(), 4000);
+    return () => window.clearInterval(interval);
+  }, [started, user]);
+
   useEffect(() => {
     projectilesRef.current = projectiles;
   }, [projectiles]);
@@ -392,9 +535,15 @@ function Game() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  // 월드 rAF 루프에서 140ms마다 호출되는 위치 동기화
+  // 월드 rAF 루프에서 140ms마다 호출되는 위치 동기화 (변화 없으면 리렌더 생략)
   const handleSync = useCallback((snapshot) => {
-    setPlayerHud(snapshot);
+    setPlayerHud((prev) => (
+      Math.abs(prev.x - snapshot.x) < 0.01 &&
+      Math.abs(prev.z - snapshot.z) < 0.01 &&
+      Math.abs(prev.dir - snapshot.dir) < 0.01
+        ? prev
+        : snapshot
+    ));
   }, []);
 
   const handleBlocked = useCallback(() => {
@@ -411,6 +560,7 @@ function Game() {
         ...Object.fromEntries(newlyFound.map((quest) => [quest.id, true])),
       }));
       setToast(`보물 거점 발견: ${newlyFound.map((quest) => quest.title).join(", ")}`);
+      sfx.discover();
     }
 
     // 숨은 마음 조각 줍기
@@ -424,6 +574,7 @@ function Game() {
       )));
       setEnergy((prev) => Math.min(100, prev + picked.length * 6));
       setToast(`✨ 숨은 마음 조각 발견! (${foundTotal}/${treasureSeeds.length}) 에너지 +${picked.length * 6}`);
+      sfx.pickup();
     }
 
     let nearest = null;
@@ -539,6 +690,7 @@ function Game() {
           community: Math.min(100, prev.community + hitFogIds.size * 5),
         }));
         setToast(`빛장벽 ${hitFogIds.size}개 해제!`);
+        sfx.barrier();
       }
       setProjectiles(next);
     }, 70);
@@ -547,7 +699,7 @@ function Game() {
 
   // 로컬 멀티플레이(WS): http 환경에서만, 접속은 1회만 맺고 위치는 주기 전송
   useEffect(() => {
-    if (!started) return undefined;
+    if (!started || !user) return undefined;
     if (window.location.protocol !== "http:") return undefined;
     let socket;
     try {
@@ -606,9 +758,9 @@ function Game() {
     };
   }, [profile]);
 
-  // 우리 반 모드: 진행 상황을 1초 디바운스로 Firestore에 기록
+  // 우리 반 모드: 진행 상황을 1초 디바운스로 Firestore에 기록 (장벽·조각은 누적값)
   useEffect(() => {
-    if (!profile?.room) return undefined;
+    if (!profile?.room || !user) return undefined;
     const timer = window.setTimeout(() => {
       import("./lib/firebase.js")
         .then((fb) => fb.pushProgress(profile.room, user.id, {
@@ -616,8 +768,8 @@ function Game() {
           color: user.color,
           found: discoveredCount,
           solvedCount: completed,
-          cleared: clearedFogCount,
-          gems: treasureCount,
+          cleared: lifetimeCleared,
+          gems: lifetimeGems,
           energy,
           score,
           done: completed === quests.length,
@@ -625,27 +777,72 @@ function Game() {
         .catch(() => {});
     }, 1000);
     return () => window.clearTimeout(timer);
-  }, [profile, user, discoveredCount, completed, clearedFogCount, treasureCount, energy, score]);
+  }, [profile, user, discoveredCount, completed, lifetimeCleared, lifetimeGems, energy, score]);
+
+  const joinRoom = (room, name, userInfo) => {
+    import("./lib/firebase.js")
+      .then(async (fb) => {
+        await fb.pushProgress(room, userInfo.id, {
+          name,
+          color: userInfo.color,
+          found: 0,
+          solvedCount: 0,
+          cleared: 0,
+          gems: 0,
+          energy: 0,
+          score,
+          done: false,
+        });
+        setToast(`우리 반(${room})에 연결되었습니다. 마을을 깨워 볼까요?`);
+      })
+      .catch(() => setToast("우리 반 연결에 실패했습니다. 혼자 모드로 시작합니다."));
+  };
+
+  const continueGame = () => {
+    const save = loadSave();
+    if (!save) return;
+    initAudio();
+    setUser(save.user);
+    setSolved(save.solved || {});
+    setAnswered(save.answered || {});
+    setDiscovered(save.discovered || {});
+    const restoredFogs = fogSeeds.map((f) => ({ ...f, cleared: (save.cleared || []).includes(f.id) }));
+    setFogs(restoredFogs);
+    fogsRef.current = restoredFogs;
+    const restoredTreasures = treasureSeeds.map((t) => ({ ...t, found: (save.found || []).includes(t.id) }));
+    setTreasures(restoredTreasures);
+    treasuresRef.current = restoredTreasures;
+    setEnergy(save.energy || 0);
+    setScore(save.score || { self: 20, empathy: 20, relation: 20, community: 20 });
+    setEndingDismissed(!!save.endingDismissed);
+    prevClearedRef.current = restoredFogs.filter((f) => f.cleared).length;
+    prevGemsRef.current = restoredTreasures.filter((t) => t.found).length;
+    setLifetimeCleared(save.lifetimeCleared ?? prevClearedRef.current);
+    setLifetimeGems(save.lifetimeGems ?? prevGemsRef.current);
+    playerRef.current = {
+      x: save.pos?.x ?? spawn.x,
+      z: save.pos?.z ?? spawn.z,
+      dir: -Math.PI * 0.75,
+      moving: false,
+    };
+    setPlayerHud({ x: playerRef.current.x, z: playerRef.current.z, dir: 0 });
+    setProfile(save.profile);
+    if (save.profile.room) joinRoom(save.profile.room, save.profile.name, save.user);
+    else setToast("이어서 탐험을 시작합니다!");
+  };
 
   const startGame = (name, room) => {
+    initAudio();
+    try {
+      localStorage.removeItem(SAVE_KEY);
+    } catch {
+      // 무시
+    }
+    const newUser = makeUser();
+    setUser(newUser);
     setProfile({ name, room });
     if (room) {
-      import("./lib/firebase.js")
-        .then(async (fb) => {
-          await fb.pushProgress(room, user.id, {
-            name,
-            color: user.color,
-            found: 0,
-            solvedCount: 0,
-            cleared: 0,
-            gems: 0,
-            energy: 0,
-            score,
-            done: false,
-          });
-          setToast(`우리 반(${room})에 연결되었습니다. 마을을 깨워 볼까요?`);
-        })
-        .catch(() => setToast("우리 반 연결에 실패했습니다. 혼자 모드로 시작합니다."));
+      joinRoom(room, name, newUser);
     } else {
       setToast("빛장벽을 깨고 보물 거점을 찾아보세요!");
     }
@@ -657,11 +854,13 @@ function Game() {
     const alreadySolved = !!solved[quest.id];
     if (!alreadySolved) {
       if (choice.good) {
-        setScore((prev) => ({ ...prev, [quest.stat]: Math.min(100, prev[quest.stat] + 18) }));
+        setScore((prev) => ({ ...prev, [quest.stat]: Math.min(100, prev[quest.stat] + gainForStat(quest.stat)) }));
         setEnergy((prev) => Math.min(100, prev + 8));
         setSolved((prev) => ({ ...prev, [quest.id]: true }));
+        sfx.solve();
       } else if (!answered[quest.id]) {
         setScore((prev) => ({ ...prev, [quest.stat]: Math.min(100, prev[quest.stat] + 5) }));
+        sfx.bad();
       }
     }
     setAnswered((prev) => ({ ...prev, [quest.id]: true }));
@@ -727,6 +926,33 @@ function Game() {
     ? activeQuest.view || (solved[activeQuest.quest.id] ? "recap" : "ask")
     : null;
 
+  // 엔딩 팡파레 (1회)
+  const endingPlayedRef = useRef(false);
+  useEffect(() => {
+    if (endingOpen && !endingPlayedRef.current) {
+      endingPlayedRef.current = true;
+      sfx.ending();
+    }
+    if (completed < quests.length) endingPlayedRef.current = false;
+  }, [endingOpen, completed]);
+
+  // 반짝 부스트: 에너지 60을 소모해 10초간 이동속도 1.5배
+  const boostActive = boostLeft > 0;
+  const boost = () => {
+    if (!started || boostActive || energy < 60) return;
+    setEnergy((prev) => prev - 60);
+    boostUntilRef.current = Date.now() + 10000;
+    setBoostLeft(10);
+    setToast("⚡ 반짝 부스트! 10초간 빠르게 달립니다.");
+    sfx.boost();
+  };
+
+  const toggleMuted = () => {
+    const next = !muted;
+    setMuted(next);
+    setMutedState(next);
+  };
+
   return (
     <main className="game-shell">
       <GameWorld
@@ -734,6 +960,7 @@ function Game() {
         inputRef={inputRef}
         fogsRef={fogsRef}
         treasuresRef={treasuresRef}
+        boostUntilRef={boostUntilRef}
         runningRef={runningRef}
         solved={solved}
         discovered={discovered}
@@ -791,6 +1018,9 @@ function Game() {
             💛 {treasureCount}/{treasureSeeds.length}
           </div>
           {profile?.room && <div className="room-chip small">반 {profile.room}</div>}
+          <button className="mute-chip" onClick={toggleMuted} title={muted ? "소리 켜기" : "소리 끄기"}>
+            {muted ? "🔇" : "🔊"}
+          </button>
         </div>
         {classBrightness && (
           <div
@@ -860,6 +1090,13 @@ function Game() {
         <Joystick inputRef={inputRef} />
         <button className="shoot-button" onClick={() => runningRef.current && shoot()}>
           <Sparkles size={16} /> 공감 빛구슬
+        </button>
+        <button
+          className={boostActive ? "boost-button active" : "boost-button"}
+          onClick={boost}
+          disabled={!boostActive && energy < 60}
+        >
+          ⚡ {boostActive ? `부스트 ${boostLeft}초!` : "반짝 부스트 (에너지 60)"}
         </button>
         <button className="reset" onClick={reset}><RotateCcw size={16} /> 다시 시작</button>
       </section>
@@ -986,7 +1223,7 @@ function Game() {
         </section>
       )}
 
-      {!started && <IntroScreen onStart={startGame} />}
+      {!started && <IntroScreen onStart={startGame} onContinue={continueGame} savedGame={savedGame} />}
     </main>
   );
 }
@@ -1002,7 +1239,34 @@ function App() {
   return <Game />;
 }
 
+// 교사 커스텀 문항: public/quests-custom.json이 있으면 텍스트 필드만 덮어쓴다
+// (좌표·색상·역량은 게임 밸런스와 지형에 묶여 있어 텍스트만 허용)
+async function applyCustomQuests() {
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}quests-custom.json`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    (data.quests || []).forEach((custom) => {
+      const target = quests.find((q) => q.id === custom.id);
+      if (!target) return;
+      ["name", "title", "problem", "insight"].forEach((key) => {
+        if (typeof custom[key] === "string" && custom[key]) target[key] = custom[key];
+      });
+      if (Array.isArray(custom.choices)) {
+        custom.choices.forEach((choice, i) => {
+          if (!target.choices[i]) return;
+          if (typeof choice.text === "string" && choice.text) target.choices[i].text = choice.text;
+          if (typeof choice.reward === "string" && choice.reward) target.choices[i].reward = choice.reward;
+          if (typeof choice.good === "boolean") target.choices[i].good = choice.good;
+        });
+      }
+    });
+  } catch {
+    // 커스텀 파일이 없으면 기본 문항 사용
+  }
+}
+
 // HMR로 엔트리 모듈이 재실행돼도 루트를 한 번만 만든다
 const container = document.getElementById("root");
 if (!container.__reactRoot) container.__reactRoot = createRoot(container);
-container.__reactRoot.render(<App />);
+applyCustomQuests().finally(() => container.__reactRoot.render(<App />));
