@@ -328,10 +328,13 @@ function Game() {
     };
   }, []);
 
-  // 초기 방향은 카메라를 마주 보게(-3π/4) 두어 얼굴이 먼저 보이도록 한다
-  const playerRef = useRef({ x: 0, z: 0, dir: -Math.PI * 0.75, moving: false });
+  // 초기 방향은 카메라를 마주 보게(-3π/4), 스폰은 중앙 분수대 남쪽
+  const playerRef = useRef({ x: 0, z: 4, dir: -Math.PI * 0.75, moving: false });
   const inputRef = useRef({ keys: new Set(), joy: { x: 0, y: 0 } });
   const runningRef = useRef(false);
+  if (import.meta.env.DEV) {
+    globalThis.__cbDebug = { playerRef, inputRef, runningRef };
+  }
 
   const [playerHud, setPlayerHud] = useState({ x: 0, z: 0, dir: 0 });
   const [nearQuest, setNearQuest] = useState(null);
@@ -618,8 +621,8 @@ function Game() {
   };
 
   const reset = () => {
-    playerRef.current = { x: 0, z: 0, dir: -Math.PI * 0.75, moving: false };
-    setPlayerHud({ x: 0, z: 0, dir: 0 });
+    playerRef.current = { x: 0, z: 4, dir: -Math.PI * 0.75, moving: false };
+    setPlayerHud({ x: 0, z: 4, dir: 0 });
     setSolved({});
     setAnswered({});
     setDiscovered({});
@@ -669,6 +672,8 @@ function Game() {
         fogsRef={fogsRef}
         runningRef={runningRef}
         solved={solved}
+        discovered={discovered}
+        progress={(completed / quests.length) * 0.75 + (clearedFogCount / fogs.length) * 0.25}
         peers={peerList}
         projectiles={projectiles}
         onSync={handleSync}
@@ -919,4 +924,7 @@ function App() {
   return <Game />;
 }
 
-createRoot(document.getElementById("root")).render(<App />);
+// HMR로 엔트리 모듈이 재실행돼도 루트를 한 번만 만든다
+const container = document.getElementById("root");
+if (!container.__reactRoot) container.__reactRoot = createRoot(container);
+container.__reactRoot.render(<App />);

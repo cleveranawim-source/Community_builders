@@ -12,7 +12,88 @@ const terrainColors = {
   sand: 0xf0cf80,
   water: 0x5bc7f0,
   path: 0xdcb887,
+  plaza: 0xd8d0be,
+  bridge: 0xb98a52,
 };
+
+const terrainTopColors = {
+  grass: 0x91dd78,
+  moss: 0x91dd78,
+  sand: 0xf7dd9a,
+  path: 0xe6c794,
+  plaza: 0xe4ddca,
+  bridge: 0xcda06a,
+};
+
+const POOLS = [
+  { x: 16, z: -14, r: 5 },
+  { x: -13, z: 19, r: 5 },
+];
+
+// 마을 집 위치(방사형 길·빛장벽과 겹치지 않는 각도에 배치, 문은 중앙 광장을 향함)
+const HOUSES = [
+  [15, 3, 0xf4a9a0],
+  [-15, 3, 0xa8d8f0],
+  [-5, -14, 0xb8e0b8],
+  [5, -13, 0xd7b8e8],
+  [-1, 13.5, 0xf0c8a0],
+];
+
+function groundHeight(x, z) {
+  return Math.sin(x * 0.8) * Math.cos(z * 0.7) * 0.08;
+}
+
+// 지형 데이터: 중앙 광장 + 16거점 방사형 길 + 순환로(반지름 24) + 연못/다리
+function computeTerrainData() {
+  const pathSet = new Set();
+  const key = (x, z) => `${x},${z}`;
+  const stamp = (x, z) => {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dz = -1; dz <= 1; dz += 1) pathSet.add(key(x + dx, z + dz));
+    }
+  };
+  quests.forEach((quest) => {
+    const [qx, qz] = quest.pos;
+    const steps = Math.ceil(Math.hypot(qx, qz));
+    for (let i = 0; i <= steps; i += 1) {
+      stamp(Math.round((qx * i) / steps), Math.round((qz * i) / steps));
+    }
+  });
+  const ringSteps = 220;
+  for (let i = 0; i < ringSteps; i += 1) {
+    const angle = (i / ringSteps) * Math.PI * 2;
+    stamp(Math.round(Math.cos(angle) * 24), Math.round(Math.sin(angle) * 24));
+  }
+
+  const tiles = [];
+  const waterSet = new Set();
+  for (let x = -HALF; x <= HALF; x += 1) {
+    for (let z = -HALF; z <= HALF; z += 1) {
+      const d = Math.sqrt(x * x + z * z);
+      if (d > HALF + 0.6) continue;
+      const onPath = pathSet.has(key(x, z));
+      const inPool = POOLS.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < p.r * p.r);
+      const nearPool = POOLS.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < (p.r + 1.8) ** 2);
+      let type = "grass";
+      if ((x + 30) ** 2 + (z - 33) ** 2 < 70 || (x - 31) ** 2 + (z - 30) ** 2 < 55) type = "moss";
+      if (onPath) type = "path";
+      if (d <= 7) type = "plaza";
+      if (nearPool && !inPool && !onPath && d > 7) type = "sand";
+      if (d > HALF - 2.5) type = "sand";
+      if (inPool) type = onPath ? "bridge" : "water";
+      if (type === "water") waterSet.add(key(x, z));
+      const height =
+        type === "water" ? -0.1 :
+        type === "bridge" ? 0.06 :
+        type === "plaza" ? 0.02 :
+        groundHeight(x, z);
+      tiles.push({ x, z, type, height });
+    }
+  }
+  return { tiles, pathSet, waterSet };
+}
+
+const TERRAIN = computeTerrainData();
 
 function mat(color, options = {}) {
   return new THREE.MeshStandardMaterial({
@@ -26,6 +107,12 @@ function mat(color, options = {}) {
 function lerpAngle(current, target, t) {
   const delta = ((target - current + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
   return current + delta * t;
+}
+
+function easeOutBack(x) {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * (x - 1) ** 3 + c1 * (x - 1) ** 2;
 }
 
 // 청키(복셀풍) 캐릭터: 얼굴·앞머리·발끝은 앞(-z), 뒷머리·백팩은 뒤(+z)로
@@ -52,7 +139,6 @@ function createCharacterModel({ color, hair = 0x26314d, player = false }) {
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.03;
 
-  // 다리 + 발 (발끝이 앞으로 튀어나와 방향성 제공)
   const legGeo = new THREE.BoxGeometry(0.2, 0.34, 0.24);
   legGeo.translate(0, -0.17, 0);
   const footGeo = new THREE.BoxGeometry(0.22, 0.12, 0.34);
@@ -71,14 +157,12 @@ function createCharacterModel({ color, hair = 0x26314d, player = false }) {
   const leftLeg = makeLeg(-0.15);
   const rightLeg = makeLeg(0.15);
 
-  // 몸통 (+앞면 흰 지퍼선으로 정면 표시)
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.54, 0.4), outfitMat);
   body.position.y = 0.73;
   body.castShadow = true;
   const placket = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.46, 0.02), mat(0xf8fafc, { roughness: 0.5 }));
   placket.position.set(0, 0.73, -0.205);
 
-  // 팔 (어깨 피벗 + 살구색 손)
   const armGeo = new THREE.BoxGeometry(0.17, 0.42, 0.21);
   armGeo.translate(0, -0.18, 0);
   const handGeo = new THREE.SphereGeometry(0.095, 12, 10);
@@ -97,7 +181,6 @@ function createCharacterModel({ color, hair = 0x26314d, player = false }) {
   const leftArm = makeArm(-0.41);
   const rightArm = makeArm(0.41);
 
-  // 머리 (목 피벗): 얼굴은 -z 면에만 배치 → 앞뒤가 확실히 다르다
   const head = new THREE.Group();
   head.position.y = 1.02;
 
@@ -156,7 +239,6 @@ function createCharacterModel({ color, hair = 0x26314d, player = false }) {
   group.add(shadow, leftLeg, rightLeg, body, placket, leftArm, rightArm, head);
 
   if (player) {
-    // 주인공: 노란 탐험가 모자(챙=앞) + 빨간 백팩(=뒤) + 발밑 진행 방향 화살표
     const capTop = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.2, 0.68), capMat);
     capTop.position.set(0, 0.62, 0);
     capTop.castShadow = true;
@@ -215,51 +297,85 @@ function createFogModel() {
   shardB.scale.set(0.72, 1.1, 0.72);
   shardB.rotation.z = 0.28;
   shardB.castShadow = true;
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.98, 0.035, 10, 64),
-    mat(0x9aa3b8, { transparent: true, opacity: 0.62, emissive: new THREE.Color(0x8ba0ff), emissiveIntensity: 0.35 })
-  );
+  const ringMat = mat(0x9aa3b8, {
+    transparent: true,
+    opacity: 0.62,
+    emissive: new THREE.Color(0x8ba0ff),
+    emissiveIntensity: 0.35,
+  });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.98, 0.035, 10, 64), ringMat);
   ring.rotation.x = Math.PI / 2;
   ring.position.y = -0.54;
   group.add(core, shardA, shardB, ring);
   group.position.y = 1.05;
-  return group;
+  return { group, mats: [crystalMat, ringMat] };
 }
 
-function makeTerrain() {
-  const tiles = [];
-  for (let x = -HALF; x <= HALF; x += 1) {
-    for (let z = -HALF; z <= HALF; z += 1) {
-      const d = Math.sqrt(x * x + z * z);
-      if (d > HALF + 0.6) continue;
-      let type = "grass";
-      if (d > HALF - 1.5) type = "sand";
-      if (
-        Math.abs(x) <= 1 ||
-        Math.abs(z) <= 1 ||
-        Math.abs(x - z) <= 1 ||
-        Math.abs(x + z) <= 1 ||
-        Math.abs(x - 28) <= 1 ||
-        Math.abs(z + 28) <= 1
-      ) type = "path";
-      if ((x + 30) ** 2 + (z - 33) ** 2 < 70 || (x - 31) ** 2 + (z - 30) ** 2 < 55) type = "moss";
-      if ((x - 34) ** 2 + (z + 30) ** 2 < 64 || (x + 35) ** 2 + (z + 28) ** 2 < 50) type = "water";
-      const height = type === "water" ? -0.08 : Math.sin(x * 0.8) * Math.cos(z * 0.7) * 0.08;
-      tiles.push({ x, z, type, height });
-    }
-  }
-  return tiles;
+// 숨은 NPC를 감싸는 안개 고치 + 물음표 표식
+let questionTexture = null;
+function getQuestionTexture() {
+  if (questionTexture) return questionTexture;
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  ctx.beginPath();
+  ctx.arc(64, 64, 54, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
+  ctx.fill();
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+  ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "900 74px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("?", 64, 68);
+  questionTexture = new THREE.CanvasTexture(canvas);
+  return questionTexture;
+}
+
+function createMistCocoon() {
+  const group = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xe3e9f2,
+    transparent: true,
+    opacity: 0.82,
+    roughness: 1,
+    metalness: 0,
+  });
+  const geo = new THREE.SphereGeometry(1, 14, 10);
+  [
+    [0, 0.75, 0, 0.95],
+    [0.72, 0.55, 0.25, 0.62],
+    [-0.68, 0.6, -0.12, 0.66],
+    [0.18, 0.5, 0.7, 0.56],
+    [-0.24, 0.55, -0.66, 0.6],
+    [0, 1.5, 0, 0.62],
+  ].forEach(([x, y, z, s]) => {
+    const puff = new THREE.Mesh(geo, material);
+    puff.position.set(x, y, z);
+    puff.scale.setScalar(s);
+    group.add(puff);
+  });
+  const spriteMat = new THREE.SpriteMaterial({ map: getQuestionTexture(), transparent: true, depthWrite: false });
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.scale.set(0.85, 0.85, 1);
+  sprite.position.y = 2.55;
+  group.add(sprite);
+  return { group, material, sprite };
 }
 
 // 지형은 타일 수천 개를 InstancedMesh로 묶어 드로우콜과 재질 수를 최소화한다.
 function buildTerrain(scene) {
-  const tiles = makeTerrain();
   const blockGeo = new THREE.BoxGeometry(1, 0.42, 1);
   const edgeGeo = new THREE.BoxGeometry(0.92, 0.035, 0.92);
   const matrix = new THREE.Matrix4();
 
-  const byType = { grass: [], moss: [], sand: [], water: [], path: [] };
-  tiles.forEach((tile) => byType[tile.type].push(tile));
+  const byType = {};
+  TERRAIN.tiles.forEach((tile) => {
+    (byType[tile.type] ||= []).push(tile);
+  });
 
   Object.entries(byType).forEach(([type, group]) => {
     if (!group.length) return;
@@ -279,53 +395,221 @@ function buildTerrain(scene) {
     instanced.receiveShadow = true;
     instanced.castShadow = !isWater;
     scene.add(instanced);
-  });
 
-  const pathTops = byType.path;
-  const grassTops = [...byType.grass, ...byType.moss, ...byType.sand];
-  [[pathTops, 0xe6c794], [grassTops, 0x91dd78]].forEach(([group, color]) => {
-    if (!group.length) return;
-    const instanced = new THREE.InstancedMesh(edgeGeo, mat(color, { roughness: 0.82 }), group.length);
-    group.forEach((tile, i) => {
-      matrix.setPosition(tile.x, tile.height + 0.23, tile.z);
-      instanced.setMatrixAt(i, matrix);
-    });
-    instanced.receiveShadow = true;
-    scene.add(instanced);
+    if (!isWater) {
+      const tops = new THREE.InstancedMesh(edgeGeo, mat(terrainTopColors[type], { roughness: 0.82 }), group.length);
+      group.forEach((tile, i) => {
+        matrix.setPosition(tile.x, tile.height + 0.23, tile.z);
+        tops.setMatrixAt(i, matrix);
+      });
+      tops.receiveShadow = true;
+      scene.add(tops);
+    }
   });
 }
 
-function buildDecorations(scene) {
-  const treeTrunk = new THREE.CylinderGeometry(0.16, 0.2, 1.3, 8);
-  const treeTop = new THREE.SphereGeometry(0.68, 18, 14);
-  const trunkMat = mat(0x8b6138, { roughness: 0.9 });
-  const leafMat = mat(0x4fae68, { roughness: 0.82 });
-  [
-    [-13, -2], [-12, 6], [-10, 13], [-7, 2], [-6, 6], [-4, -12], [-2, -7],
-    [2, 7], [4, -14], [7, 1], [7, -6], [9, 13], [12, -2], [13, 6],
-  ].forEach(([x, z]) => {
-    const trunk = new THREE.Mesh(treeTrunk, trunkMat);
-    trunk.position.set(x, 0.8, z);
-    trunk.castShadow = true;
-    const leaf = new THREE.Mesh(treeTop, leafMat);
-    leaf.position.set(x, 1.8, z);
-    leaf.scale.set(1, 0.92, 1);
-    leaf.castShadow = true;
-    scene.add(trunk, leaf);
-  });
+function mulberry32(seed) {
+  let a = seed;
+  return function next() {
+    a += 0x6d2b79f5;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
-  const flowerMat = [mat(0xff8fab), mat(0xffd166), mat(0x8b5cf6), mat(0x7dd3fc)];
-  const stemGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.28, 6);
-  const bloomGeo = new THREE.SphereGeometry(0.105, 10, 8);
-  const stemMat = mat(0x3d9b5d);
-  [[-12, 4], [-8, -6], [-3, -2], [-2, 3], [3, -5], [6, 2], [-6, -1], [1, 6], [5, -1], [8, 8], [12, -7], [-10, 10]].forEach(([x, z], i) => {
-    const stem = new THREE.Mesh(stemGeo, stemMat);
-    stem.position.set(x + 0.18, 0.48, z - 0.16);
-    const bloom = new THREE.Mesh(bloomGeo, flowerMat[i % flowerMat.length]);
-    bloom.position.set(x + 0.18, 0.66, z - 0.16);
-    bloom.castShadow = true;
-    scene.add(stem, bloom);
+function isDecorBlocked(x, z) {
+  const d = Math.hypot(x, z);
+  if (d > HALF - 4 || d < 8.5) return true;
+  const rx = Math.round(x);
+  const rz = Math.round(z);
+  for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dz = -1; dz <= 1; dz += 1) {
+      if (TERRAIN.pathSet.has(`${rx + dx},${rz + dz}`)) return true;
+    }
+  }
+  if (POOLS.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + 2)) return true;
+  if (quests.some((q) => Math.hypot(x - q.pos[0], z - q.pos[1]) < 4.5)) return true;
+  if (fogSeeds.some((f) => Math.hypot(x - f.x, z - f.z) < 2.4)) return true;
+  if (HOUSES.some((h) => Math.hypot(x - h[0], z - h[1]) < 3.6)) return true;
+  return false;
+}
+
+function buildHouse(scene, x, z, bodyColor) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.6, 2.2), mat(bodyColor, { roughness: 0.72 }));
+  body.position.y = 1.0;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(2.15, 1.3, 4), mat(0xc95f4b, { roughness: 0.7 }));
+  roof.position.y = 2.42;
+  roof.rotation.y = Math.PI / 4;
+  roof.castShadow = true;
+  const door = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.9, 0.08), mat(0x7a5230, { roughness: 0.8 }));
+  door.position.set(0, 0.68, -1.12);
+  const windowMat = mat(0xffe9a8, { emissive: new THREE.Color(0xffd166), emissiveIntensity: 0.55, roughness: 0.4 });
+  const windowGeo = new THREE.BoxGeometry(0.5, 0.5, 0.06);
+  const leftWindow = new THREE.Mesh(windowGeo, windowMat);
+  leftWindow.position.set(-0.75, 1.15, -1.12);
+  const rightWindow = new THREE.Mesh(windowGeo, windowMat);
+  rightWindow.position.set(0.75, 1.15, -1.12);
+  group.add(body, roof, door, leftWindow, rightWindow);
+  group.position.set(x, groundHeight(x, z) + 0.21, z);
+  group.rotation.y = Math.atan2(x, z);
+  scene.add(group);
+}
+
+function buildFountain(scene) {
+  const group = new THREE.Group();
+  const basin = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.8, 0.5, 20), mat(0xcfc8b8, { roughness: 0.8 }));
+  basin.position.y = 0.45;
+  basin.castShadow = true;
+  basin.receiveShadow = true;
+  const waterMat = mat(0x5bc7f0, {
+    roughness: 0.2,
+    transparent: true,
+    opacity: 0.85,
+    emissive: new THREE.Color(0x1b7fb3),
+    emissiveIntensity: 0.25,
   });
+  const water = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.35, 0.12, 20), waterMat);
+  water.position.y = 0.66;
+  const column = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 0.9, 12), mat(0xbfb7a4, { roughness: 0.8 }));
+  column.position.y = 1.1;
+  column.castShadow = true;
+  const orb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), waterMat);
+  orb.position.y = 1.68;
+  group.add(basin, water, column, orb);
+  group.position.y = 0.22;
+  scene.add(group);
+  return orb;
+}
+
+function buildDecorations(scene) {
+  const rand = mulberry32(20260704);
+  const trees = [];
+  const bushes = [];
+  const rocks = [];
+  const flowers = [];
+  const scatter = (count, arr, spacing) => {
+    let tries = 0;
+    while (arr.length < count && tries < 4000) {
+      tries += 1;
+      const x = (rand() * 2 - 1) * (HALF - 4);
+      const z = (rand() * 2 - 1) * (HALF - 4);
+      if (isDecorBlocked(x, z)) continue;
+      if (arr.some((p) => Math.hypot(p[0] - x, p[1] - z) < spacing)) continue;
+      arr.push([x, z, rand()]);
+    }
+  };
+  scatter(52, trees, 3);
+  scatter(26, bushes, 2.4);
+  scatter(16, rocks, 3);
+  scatter(46, flowers, 1.6);
+
+  const matrix = new THREE.Matrix4();
+  const quat = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  const pos = new THREE.Vector3();
+  const color = new THREE.Color();
+
+  const trunkMesh = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.16, 0.22, 1.3, 7),
+    mat(0x8b6138, { roughness: 0.9 }),
+    trees.length
+  );
+  const leafMesh = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(0.7, 14, 11),
+    mat(0xffffff, { roughness: 0.82 }),
+    trees.length
+  );
+  const leafShades = [0x4fae68, 0x5cbd74, 0x3f9e5c, 0x6ac97f];
+  trees.forEach(([x, z, r], i) => {
+    const s = 0.8 + r * 0.6;
+    const y = groundHeight(x, z);
+    matrix.compose(pos.set(x, y + 0.65 * s, z), quat, scale.set(s, s, s));
+    trunkMesh.setMatrixAt(i, matrix);
+    matrix.compose(pos.set(x, y + 1.72 * s, z), quat, scale.set(s, s * 0.94, s));
+    leafMesh.setMatrixAt(i, matrix);
+    leafMesh.setColorAt(i, color.setHex(leafShades[i % leafShades.length]));
+  });
+  trunkMesh.castShadow = true;
+  leafMesh.castShadow = true;
+  scene.add(trunkMesh, leafMesh);
+
+  const bushMesh = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(0.5, 12, 9),
+    mat(0xffffff, { roughness: 0.85 }),
+    bushes.length
+  );
+  bushes.forEach(([x, z, r], i) => {
+    const s = 0.8 + r * 0.5;
+    matrix.compose(pos.set(x, groundHeight(x, z) + 0.42 * s, z), quat, scale.set(1.25 * s, 0.72 * s, 1.25 * s));
+    bushMesh.setMatrixAt(i, matrix);
+    bushMesh.setColorAt(i, color.setHex(i % 2 ? 0x55b06b : 0x66c07a));
+  });
+  bushMesh.castShadow = true;
+  scene.add(bushMesh);
+
+  const rockMesh = new THREE.InstancedMesh(
+    new THREE.DodecahedronGeometry(0.42, 0),
+    mat(0xffffff, { roughness: 0.9 }),
+    rocks.length
+  );
+  rocks.forEach(([x, z, r], i) => {
+    const s = 0.7 + r * 0.7;
+    matrix.compose(pos.set(x, groundHeight(x, z) + 0.32 * s, z), quat, scale.set(s, 0.78 * s, s));
+    rockMesh.setMatrixAt(i, matrix);
+    rockMesh.setColorAt(i, color.setHex(i % 2 ? 0x9aa3ad : 0xb2bac2));
+  });
+  rockMesh.castShadow = true;
+  scene.add(rockMesh);
+
+  const stemMesh = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.025, 0.025, 0.28, 6),
+    mat(0x3d9b5d),
+    flowers.length
+  );
+  const bloomMesh = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(0.105, 10, 8),
+    mat(0xffffff, { roughness: 0.5 }),
+    flowers.length
+  );
+  const petalShades = [0xff8fab, 0xffd166, 0x8b5cf6, 0x7dd3fc, 0xfb923c];
+  flowers.forEach(([x, z], i) => {
+    const y = groundHeight(x, z);
+    matrix.compose(pos.set(x, y + 0.48, z), quat, scale.set(1, 1, 1));
+    stemMesh.setMatrixAt(i, matrix);
+    matrix.compose(pos.set(x, y + 0.66, z), quat, scale.set(1, 1, 1));
+    bloomMesh.setMatrixAt(i, matrix);
+    bloomMesh.setColorAt(i, color.setHex(petalShades[i % petalShades.length]));
+  });
+  bloomMesh.castShadow = true;
+  scene.add(stemMesh, bloomMesh);
+
+  // 순환로 바깥 가로등
+  for (let i = 0; i < 12; i += 1) {
+    const angle = (i / 12) * Math.PI * 2 + Math.PI / 12;
+    const x = Math.cos(angle) * 26.4;
+    const z = Math.sin(angle) * 26.4;
+    if (isDecorBlocked(x, z)) continue;
+    const lantern = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 1.5, 8), mat(0x5b4a3a, { roughness: 0.85 }));
+    pole.position.y = 0.75;
+    pole.castShadow = true;
+    const lamp = new THREE.Mesh(
+      new THREE.SphereGeometry(0.17, 12, 10),
+      mat(0xffe9a8, { emissive: new THREE.Color(0xffd166), emissiveIntensity: 1.1, roughness: 0.3 })
+    );
+    lamp.position.y = 1.55;
+    lantern.add(pole, lamp);
+    lantern.position.set(x, groundHeight(x, z) + 0.2, z);
+    scene.add(lantern);
+  }
+
+  HOUSES.forEach(([x, z, bodyColor]) => buildHouse(scene, x, z, bodyColor));
+  return buildFountain(scene);
 }
 
 function disposeScene(scene, renderer) {
@@ -350,7 +634,6 @@ function applyWalkPose(parts, t, moving) {
   parts.leftLeg.rotation.x = -swing * 0.9;
   parts.rightLeg.rotation.x = swing * 0.9;
   if (!moving) {
-    // 숨쉬기 유휴 모션
     const breathe = 1 + Math.sin(t * 2.4) * 0.012;
     parts.body.scale.set(1, breathe, 1);
     parts.leftArm.rotation.z = 0.06 + Math.sin(t * 2.4) * 0.02;
@@ -368,6 +651,8 @@ export default function GameWorld({
   fogsRef,
   runningRef,
   solved,
+  discovered,
+  progress,
   peers,
   projectiles,
   onSync,
@@ -381,17 +666,25 @@ export default function GameWorld({
   const projectileRefs = useRef(new globalThis.Map());
   const onSyncRef = useRef(onSync);
   const onBlockedRef = useRef(onBlocked);
+  const discoveredRef = useRef(discovered);
+  const progressRef = useRef(progress);
 
   onSyncRef.current = onSync;
   onBlockedRef.current = onBlocked;
+  discoveredRef.current = discovered;
+  progressRef.current = progress;
 
   useEffect(() => {
     if (!mountRef.current) return undefined;
 
     const mount = mountRef.current;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xcdeeff);
-    scene.fog = new THREE.Fog(0xcdeeff, 42, 130);
+    // 초반에는 안개가 짙고, 미션이 풀릴수록 걷힌다 (rAF에서 progress 따라 보간)
+    scene.background = new THREE.Color(0xbfd6e4);
+    scene.fog = new THREE.Fog(0xbfd6e4, 24, 60);
+    const skyFrom = new THREE.Color(0xbfd6e4);
+    const skyTo = new THREE.Color(0xcdeeff);
+    const skyNow = new THREE.Color();
 
     const aspect = mount.clientWidth / mount.clientHeight || 1;
     // ?zoom=2 처럼 붙이면 확대 (수업 시연·검증용)
@@ -403,7 +696,7 @@ export default function GameWorld({
       cameraSize / 2,
       -cameraSize / 2,
       0.1,
-      100
+      400
     );
     camera.position.set(7.8, 8.4, 7.8);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -433,7 +726,7 @@ export default function GameWorld({
     scene.add(rim);
 
     buildTerrain(scene);
-    buildDecorations(scene);
+    const fountainOrb = buildDecorations(scene);
 
     const playerChar = createCharacterModel({ color: 0xffcf5a, hair: 0x25314d, player: true });
     scene.add(playerChar.group);
@@ -445,35 +738,40 @@ export default function GameWorld({
       const base = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.82, 0.28, 24), mat(quest.colorNum, { roughness: 0.62 }));
       base.castShadow = true;
       const character = createCharacterModel({ color: quest.colorNum, hair: quest.hairNum });
+      character.group.visible = false;
 
       const gem = new THREE.Mesh(
         new THREE.OctahedronGeometry(0.28),
         mat(0xffffff, { emissive: new THREE.Color(quest.colorNum), emissiveIntensity: 0.7, roughness: 0.28 })
       );
       gem.position.y = 2.38;
+      gem.visible = false;
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(0.88, 0.025, 10, 72),
         mat(quest.colorNum, { emissive: new THREE.Color(quest.colorNum), emissiveIntensity: 0.25 })
       );
       ring.rotation.x = Math.PI / 2;
       ring.position.y = 0.2;
-      group.add(base, ring, character.group, gem);
+      ring.visible = false;
+
+      const cocoon = createMistCocoon();
+      group.add(base, ring, character.group, gem, cocoon.group);
       scene.add(group);
-      questRefs.current.set(quest.id, { group, gem, ring, character, pos: quest.pos });
+      questRefs.current.set(quest.id, { group, gem, ring, character, cocoon, pos: quest.pos, reveal: 0 });
     });
 
     fogRefs.current.clear();
     fogSeeds.forEach((fog) => {
-      const group = createFogModel();
-      group.position.x = fog.x;
-      group.position.z = fog.z;
-      scene.add(group);
-      fogRefs.current.set(fog.id, group);
+      const handle = createFogModel();
+      handle.group.position.x = fog.x;
+      handle.group.position.z = fog.z;
+      scene.add(handle.group);
+      fogRefs.current.set(fog.id, { handle, anim: 0 });
     });
 
     const clouds = new THREE.Group();
     const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7 });
-    [[-13, 8, -9], [-8, 8, -6], [5, 9, -8], [9, 7, 3], [13, 8, 10]].forEach(([x, y, z]) => {
+    [[-13, 13, -9], [-8, 13, -6], [5, 14, -8], [9, 12, 3], [13, 13, 10]].forEach(([x, y, z]) => {
       const cloud = new THREE.Group();
       [0, 0.7, -0.7].forEach((offset, i) => {
         const puff = new THREE.Mesh(new THREE.SphereGeometry(0.62 - i * 0.06, 16, 10), cloudMat);
@@ -535,14 +833,13 @@ export default function GameWorld({
           const blocked = fogsRef.current.some(
             (fog) => !fog.cleared && Math.hypot(fog.x - tx, fog.z - tz) < 1.65
           );
-          // NPC 단상·연못은 조용히 막는다 (대화는 4.4 반경에서 이미 가능)
-          const bumpNpc = quests.some(
-            (quest) => Math.hypot(quest.pos[0] - tx, quest.pos[1] - tz) < 1.5
-          );
-          const inWater =
-            (tx - 34) ** 2 + (tz + 30) ** 2 < 64 ||
-            (tx + 35) ** 2 + (tz + 28) ** 2 < 50;
-          if (bumpNpc || inWater) {
+          // NPC 단상·분수대·연못·섬 밖은 조용히 막는다
+          const bump =
+            quests.some((quest) => Math.hypot(quest.pos[0] - tx, quest.pos[1] - tz) < 1.5) ||
+            Math.hypot(tx, tz) < 2.1 ||
+            Math.hypot(tx, tz) > HALF - 1.2 ||
+            TERRAIN.waterSet.has(`${Math.round(tx)},${Math.round(tz)}`);
+          if (bump) {
             // 이동만 멈추고 토스트는 띄우지 않는다
           } else if (blocked) {
             if (now - lastBlockedToast > 1600) {
@@ -579,19 +876,92 @@ export default function GameWorld({
       clouds.position.x = player.x * 0.7 + Math.sin(t * 0.08) * 0.8;
       clouds.position.z = player.z * 0.7;
 
-      questRefs.current.forEach(({ gem, group, ring, character, pos }, id) => {
-        gem.rotation.y += 0.025;
-        gem.position.y = 2.38 + Math.sin(t * 2.2 + id.length) * 0.12;
-        ring.rotation.z += 0.006;
-        // NPC는 플레이어가 다가오면 몸을 돌려 마주 본다
-        const dx = player.x - pos[0];
-        const dz = player.z - pos[1];
-        const distance = Math.hypot(dx, dz);
-        const targetDir = distance < 9
-          ? Math.atan2(-dx, -dz)
-          : -Math.PI * 0.75 + Math.sin(t * 0.8 + id.length) * 0.2;
-        character.group.rotation.y = lerpAngle(character.group.rotation.y, targetDir, 0.06);
-        applyWalkPose(character.parts, t + id.length, false);
+      fountainOrb.position.y = 1.68 + Math.sin(t * 2.2) * 0.08;
+
+      // 진행도에 따라 전역 안개가 서서히 걷힌다
+      const progressNow = clamp(progressRef.current || 0, 0, 1);
+      const targetNear = 24 + 36 * progressNow;
+      const targetFar = 60 + 110 * progressNow;
+      scene.fog.near += (targetNear - scene.fog.near) * 0.02;
+      scene.fog.far += (targetFar - scene.fog.far) * 0.02;
+      skyNow.copy(skyFrom).lerp(skyTo, progressNow);
+      scene.fog.color.lerp(skyNow, 0.02);
+      scene.background.lerp(skyNow, 0.02);
+
+      // NPC: 발견 전에는 안개 고치 속에 숨어 있고, 발견 순간 안개가 흩어지며 등장
+      questRefs.current.forEach((entry, id) => {
+        const { gem, ring, character, cocoon, pos: questPos } = entry;
+        const isDiscovered = !!discoveredRef.current?.[id];
+        if (isDiscovered) {
+          if (entry.reveal < 1) {
+            entry.reveal = Math.min(1, entry.reveal + dt * 1.2);
+            const k = entry.reveal;
+            character.group.visible = true;
+            character.group.scale.setScalar(0.94 * Math.max(0.02, easeOutBack(k)));
+            cocoon.group.scale.setScalar(1 + k * 1.4);
+            cocoon.material.opacity = 0.82 * (1 - k);
+            cocoon.sprite.material.opacity = 1 - k;
+            if (k >= 1) {
+              cocoon.group.visible = false;
+              gem.visible = true;
+              ring.visible = true;
+            }
+          } else {
+            gem.rotation.y += 0.025;
+            gem.position.y = 2.38 + Math.sin(t * 2.2 + id.length) * 0.12;
+            ring.rotation.z += 0.006;
+            // NPC는 플레이어가 다가오면 몸을 돌려 마주 본다
+            const dx = player.x - questPos[0];
+            const dz = player.z - questPos[1];
+            const distance = Math.hypot(dx, dz);
+            const targetDir = distance < 9
+              ? Math.atan2(-dx, -dz)
+              : -Math.PI * 0.75 + Math.sin(t * 0.8 + id.length) * 0.2;
+            character.group.rotation.y = lerpAngle(character.group.rotation.y, targetDir, 0.06);
+            applyWalkPose(character.parts, t + id.length, false);
+          }
+        } else {
+          if (entry.reveal > 0 || gem.visible) {
+            // 다시 시작: 재은닉
+            entry.reveal = 0;
+            character.group.visible = false;
+            gem.visible = false;
+            ring.visible = false;
+            cocoon.group.visible = true;
+            cocoon.group.scale.setScalar(1);
+            cocoon.material.opacity = 0.82;
+            cocoon.sprite.material.opacity = 1;
+          }
+          cocoon.group.rotation.y = t * 0.25;
+          cocoon.group.position.y = Math.sin(t * 1.4 + id.length) * 0.05;
+          cocoon.sprite.position.y = 2.55 + Math.sin(t * 2 + id.length) * 0.12;
+        }
+      });
+
+      // 빛장벽: 깨지는 순간 떠오르며 녹아 사라진다
+      fogsRef.current.forEach((fog) => {
+        const entry = fogRefs.current.get(fog.id);
+        if (!entry) return;
+        const { group, mats } = entry.handle;
+        if (!fog.cleared) {
+          if (entry.anim > 0) {
+            entry.anim = 0;
+            mats[0].opacity = 0.86;
+            mats[1].opacity = 0.62;
+            group.position.y = 1.05;
+          }
+          group.visible = true;
+          group.scale.setScalar(1 + Math.sin(t * 1.6 + fog.x) * 0.05);
+        } else if (entry.anim < 1) {
+          entry.anim = Math.min(1, entry.anim + dt * 1.6);
+          const k = entry.anim;
+          group.visible = k < 1;
+          group.scale.setScalar(1 + k * 0.9);
+          group.position.y = 1.05 + k * 1.4;
+          group.rotation.y += dt * 2.5;
+          mats[0].opacity = 0.86 * (1 - k);
+          mats[1].opacity = 0.62 * (1 - k);
+        }
       });
 
       // 다른 탐험가(피어): 위치 보간 + 이동 중이면 걷기 모션
@@ -604,13 +974,6 @@ export default function GameWorld({
         const peerMoving = now - entry.lastMoveAt < 400;
         g.position.y = peerMoving ? Math.abs(Math.sin(t * 11)) * 0.09 : 0;
         applyWalkPose(character.parts, t, peerMoving);
-      });
-
-      fogsRef.current.forEach((fog) => {
-        const group = fogRefs.current.get(fog.id);
-        if (!group) return;
-        group.visible = !fog.cleared;
-        if (!fog.cleared) group.scale.setScalar(1 + Math.sin(t * 1.6 + fog.x) * 0.05);
       });
 
       if (now - lastSync > SYNC_INTERVAL) {

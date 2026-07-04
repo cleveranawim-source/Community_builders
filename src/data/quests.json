@@ -5,7 +5,10 @@
       "id": "nari",
       "name": "나리",
       "title": "마음광장 복구",
-      "pos": [-36, -34],
+      "pos": [
+        -33,
+        -31
+      ],
       "color": "#ff7a59",
       "hair": "#2f2430",
       "stat": "self",
@@ -28,7 +31,10 @@
       "id": "leo",
       "name": "레오",
       "title": "관계다리 건설",
-      "pos": [36, -32],
+      "pos": [
+        30,
+        -24
+      ],
       "color": "#38bdf8",
       "hair": "#26314d",
       "stat": "relation",
@@ -51,7 +57,10 @@
       "id": "sori",
       "name": "소리",
       "title": "협동공방 가동",
-      "pos": [-34, 36],
+      "pos": [
+        -31,
+        33
+      ],
       "color": "#8b5cf6",
       "hair": "#30223d",
       "stat": "empathy",
@@ -74,7 +83,10 @@
       "id": "moru",
       "name": "모루",
       "title": "평화쉼터 확장",
-      "pos": [38, 35],
+      "pos": [
+        33,
+        30
+      ],
       "color": "#34d399",
       "hair": "#3b2a20",
       "stat": "community",
@@ -97,7 +109,10 @@
       "id": "signal",
       "name": "하루",
       "title": "도움신호 탑",
-      "pos": [-46, -8],
+      "pos": [
+        -42,
+        -7
+      ],
       "color": "#f472b6",
       "hair": "#2f2430",
       "stat": "community",
@@ -120,7 +135,10 @@
       "id": "welcome",
       "name": "유나",
       "title": "환영문",
-      "pos": [46, -4],
+      "pos": [
+        42,
+        -4
+      ],
       "color": "#fb923c",
       "hair": "#3b2a20",
       "stat": "empathy",
@@ -143,7 +161,10 @@
       "id": "promise",
       "name": "준",
       "title": "약속게시판",
-      "pos": [-8, -46],
+      "pos": [
+        -7,
+        -42
+      ],
       "color": "#22c55e",
       "hair": "#26314d",
       "stat": "community",
@@ -166,7 +187,10 @@
       "id": "listen",
       "name": "민",
       "title": "경청정원",
-      "pos": [8, 46],
+      "pos": [
+        7,
+        42
+      ],
       "color": "#a78bfa",
       "hair": "#30223d",
       "stat": "empathy",
@@ -189,7 +213,10 @@
       "id": "repair",
       "name": "태오",
       "title": "관계수리소",
-      "pos": [-43, 24],
+      "pos": [
+        -39,
+        22
+      ],
       "color": "#60a5fa",
       "hair": "#25314d",
       "stat": "relation",
@@ -212,7 +239,10 @@
       "id": "bridge2",
       "name": "이안",
       "title": "모둠연결역",
-      "pos": [43, 22],
+      "pos": [
+        39,
+        20
+      ],
       "color": "#38bdf8",
       "hair": "#26314d",
       "stat": "relation",
@@ -235,7 +265,10 @@
       "id": "rest",
       "name": "라온",
       "title": "회복캠프",
-      "pos": [-28, -43],
+      "pos": [
+        -25,
+        -38
+      ],
       "color": "#34d399",
       "hair": "#3b2a20",
       "stat": "self",
@@ -258,7 +291,10 @@
       "id": "share",
       "name": "보미",
       "title": "나눔창고",
-      "pos": [30, -43],
+      "pos": [
+        28,
+        -38
+      ],
       "color": "#facc15",
       "hair": "#2f2430",
       "stat": "community",
@@ -281,7 +317,10 @@
       "id": "vote",
       "name": "세아",
       "title": "합의광장",
-      "pos": [-45, 45],
+      "pos": [
+        -24,
+        40
+      ],
       "color": "#e879f9",
       "hair": "#30223d",
       "stat": "community",
@@ -304,7 +343,10 @@
       "id": "celebrate",
       "name": "도윤",
       "title": "칭찬무대",
-      "pos": [45, 45],
+      "pos": [
+        24,
+        40
+      ],
       "color": "#fb7185",
       "hair": "#3b2a20",
       "stat": "empathy",
@@ -327,7 +369,10 @@
       "id": "safechat",
       "name": "서우",
       "title": "안전대화소",
-      "pos": [-45, -45],
+      "pos": [
+        -40,
+        -20
+      ],
       "color": "#2dd4bf",
       "hair": "#25314d",
       "stat": "relation",
@@ -350,7 +395,10 @@
       "id": "mentor",
       "name": "가온",
       "title": "또래도움소",
-      "pos": [45, -45],
+      "pos": [
+        40,
+        -18
+      ],
       "color": "#818cf8",
       "hair": "#30223d",
       "stat": "empathy",
