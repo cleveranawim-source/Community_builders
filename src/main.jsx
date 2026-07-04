@@ -328,7 +328,8 @@ function Game() {
     };
   }, []);
 
-  const playerRef = useRef({ x: 0, z: 0, dir: 0, moving: false });
+  // 초기 방향은 카메라를 마주 보게(-3π/4) 두어 얼굴이 먼저 보이도록 한다
+  const playerRef = useRef({ x: 0, z: 0, dir: -Math.PI * 0.75, moving: false });
   const inputRef = useRef({ keys: new Set(), joy: { x: 0, y: 0 } });
   const runningRef = useRef(false);
 
@@ -416,7 +417,8 @@ function Game() {
 
   const shoot = useCallback(() => {
     const player = playerRef.current;
-    const dx = Math.sin(player.dir);
+    // 정면 벡터 = (-sin dir, -cos dir)
+    const dx = -Math.sin(player.dir);
     const dz = -Math.cos(player.dir);
     setProjectiles((prev) => [
       ...prev.slice(-8),
@@ -616,7 +618,7 @@ function Game() {
   };
 
   const reset = () => {
-    playerRef.current = { x: 0, z: 0, dir: 0, moving: false };
+    playerRef.current = { x: 0, z: 0, dir: -Math.PI * 0.75, moving: false };
     setPlayerHud({ x: 0, z: 0, dir: 0 });
     setSolved({});
     setAnswered({});

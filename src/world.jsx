@@ -23,77 +23,173 @@ function mat(color, options = {}) {
   });
 }
 
+function lerpAngle(current, target, t) {
+  const delta = ((target - current + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  return current + delta * t;
+}
+
+// 청키(복셀풍) 캐릭터: 얼굴·앞머리·발끝은 앞(-z), 뒷머리·백팩은 뒤(+z)로
+// 앞뒤가 한눈에 구분되고, 팔다리는 어깨/골반 피벗으로 걷기 애니메이션이 가능하다.
 function createCharacterModel({ color, hair = 0x26314d, player = false }) {
   const group = new THREE.Group();
-  const skin = mat(0xffd9bd, { roughness: 0.78 });
-  const outfit = mat(color, { roughness: 0.58 });
-  const pants = mat(0x26324a, { roughness: 0.72 });
-  const hairMat = mat(hair, { roughness: 0.84 });
-  const eyeMat = mat(0x152033, { roughness: 0.45 });
+  const skinMat = mat(0xffd9bd, { roughness: 0.72 });
+  const outfitMat = mat(color, { roughness: 0.6 });
+  const pantsMat = mat(0x2b3a55, { roughness: 0.75 });
+  const hairMat = mat(hair, { roughness: 0.85 });
+  const shoeMat = mat(0x212c3f, { roughness: 0.55 });
+  const scleraMat = mat(0xffffff, { roughness: 0.3 });
+  const pupilMat = mat(0x141d2e, { roughness: 0.3 });
+  const browMat = mat(0x2a2016, { roughness: 0.6 });
   const smileMat = mat(0xc65b66, { roughness: 0.5 });
+  const blushMat = new THREE.MeshBasicMaterial({ color: 0xff9d9d, transparent: true, opacity: 0.5 });
+  const capMat = mat(0xf59e0b, { roughness: 0.55 });
+  const packMat = mat(0xef4444, { roughness: 0.6 });
 
   const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.58, 40),
-    new THREE.MeshBasicMaterial({ color: 0x223044, transparent: true, opacity: 0.18 })
+    new THREE.CircleGeometry(0.52, 36),
+    new THREE.MeshBasicMaterial({ color: 0x223044, transparent: true, opacity: 0.2 })
   );
   shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.035;
+  shadow.position.y = 0.03;
 
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.72, 8, 18), outfit);
-  body.position.y = 0.94;
-  body.scale.set(0.96, 1.04, 0.78);
+  // 다리 + 발 (발끝이 앞으로 튀어나와 방향성 제공)
+  const legGeo = new THREE.BoxGeometry(0.2, 0.34, 0.24);
+  legGeo.translate(0, -0.17, 0);
+  const footGeo = new THREE.BoxGeometry(0.22, 0.12, 0.34);
+  footGeo.translate(0, -0.4, -0.06);
+
+  const makeLeg = (x) => {
+    const leg = new THREE.Group();
+    const upper = new THREE.Mesh(legGeo, pantsMat);
+    upper.castShadow = true;
+    const foot = new THREE.Mesh(footGeo, shoeMat);
+    foot.castShadow = true;
+    leg.add(upper, foot);
+    leg.position.set(x, 0.46, 0);
+    return leg;
+  };
+  const leftLeg = makeLeg(-0.15);
+  const rightLeg = makeLeg(0.15);
+
+  // 몸통 (+앞면 흰 지퍼선으로 정면 표시)
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.54, 0.4), outfitMat);
+  body.position.y = 0.73;
   body.castShadow = true;
+  const placket = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.46, 0.02), mat(0xf8fafc, { roughness: 0.5 }));
+  placket.position.set(0, 0.73, -0.205);
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.38, 32, 24), skin);
-  head.position.y = 1.68;
-  head.scale.set(1.02, 1.05, 0.96);
-  head.castShadow = true;
+  // 팔 (어깨 피벗 + 살구색 손)
+  const armGeo = new THREE.BoxGeometry(0.17, 0.42, 0.21);
+  armGeo.translate(0, -0.18, 0);
+  const handGeo = new THREE.SphereGeometry(0.095, 12, 10);
+  handGeo.translate(0, -0.42, 0);
 
-  const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.405, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.55), hairMat);
-  hairCap.position.y = 1.82;
-  hairCap.scale.set(1.04, 0.74, 1.02);
-  hairCap.castShadow = true;
+  const makeArm = (x) => {
+    const arm = new THREE.Group();
+    const sleeve = new THREE.Mesh(armGeo, outfitMat);
+    sleeve.castShadow = true;
+    const hand = new THREE.Mesh(handGeo, skinMat);
+    hand.castShadow = true;
+    arm.add(sleeve, hand);
+    arm.position.set(x, 0.96, 0);
+    return arm;
+  };
+  const leftArm = makeArm(-0.41);
+  const rightArm = makeArm(0.41);
 
-  const bang = new THREE.Mesh(new THREE.SphereGeometry(0.18, 20, 12), hairMat);
-  bang.position.set(player ? -0.13 : 0.13, 1.83, -0.27);
-  bang.scale.set(1.35, 0.7, 0.8);
-  bang.castShadow = true;
+  // 머리 (목 피벗): 얼굴은 -z 면에만 배치 → 앞뒤가 확실히 다르다
+  const head = new THREE.Group();
+  head.position.y = 1.02;
 
-  const armGeo = new THREE.CapsuleGeometry(0.09, 0.55, 8, 12);
-  const leftArm = new THREE.Mesh(armGeo, skin);
-  leftArm.position.set(-0.42, 0.98, -0.02);
-  leftArm.rotation.z = 0.22;
-  leftArm.castShadow = true;
-  const rightArm = new THREE.Mesh(armGeo, skin);
-  rightArm.position.set(0.42, 0.98, -0.02);
-  rightArm.rotation.z = -0.22;
-  rightArm.castShadow = true;
+  const face = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.58, 0.6), skinMat);
+  face.position.y = 0.29;
+  face.castShadow = true;
 
-  const legGeo = new THREE.CapsuleGeometry(0.105, 0.46, 8, 12);
-  const leftLeg = new THREE.Mesh(legGeo, pants);
-  leftLeg.position.set(-0.16, 0.35, 0);
-  leftLeg.castShadow = true;
-  const rightLeg = new THREE.Mesh(legGeo, pants);
-  rightLeg.position.set(0.16, 0.35, 0);
-  rightLeg.castShadow = true;
+  const hairTop = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.26, 0.66), hairMat);
+  hairTop.position.set(0, 0.56, 0);
+  hairTop.castShadow = true;
+  const hairBack = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.5, 0.18), hairMat);
+  hairBack.position.set(0, 0.28, 0.26);
+  hairBack.castShadow = true;
+  const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.13, 0.08), hairMat);
+  fringe.position.set(0, 0.47, -0.29);
 
-  const eyeGeo = new THREE.SphereGeometry(0.035, 12, 8);
-  const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-  leftEye.position.set(-0.13, 1.7, -0.335);
-  const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-  rightEye.position.set(0.13, 1.7, -0.335);
+  const eyeGeoWhite = new THREE.CircleGeometry(0.085, 20);
+  const eyeGeoPupil = new THREE.CircleGeometry(0.048, 16);
+  const eyeGeoLight = new THREE.CircleGeometry(0.018, 10);
+  const faceZ = -0.302;
+  const makeEye = (x) => {
+    const eye = new THREE.Group();
+    const sclera = new THREE.Mesh(eyeGeoWhite, scleraMat);
+    const pupil = new THREE.Mesh(eyeGeoPupil, pupilMat);
+    pupil.position.z = -0.004;
+    const light = new THREE.Mesh(eyeGeoLight, scleraMat);
+    light.position.set(0.022, 0.024, -0.008);
+    eye.add(sclera, pupil, light);
+    eye.position.set(x, 0.31, faceZ);
+    eye.rotation.y = Math.PI;
+    return eye;
+  };
+  const leftEye = makeEye(-0.16);
+  const rightEye = makeEye(0.16);
 
-  const smile = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.012, 8, 24, Math.PI), smileMat);
-  smile.position.set(0, 1.57, -0.34);
-  smile.rotation.set(0, 0, Math.PI);
+  const browGeo = new THREE.BoxGeometry(0.14, 0.035, 0.02);
+  const leftBrow = new THREE.Mesh(browGeo, browMat);
+  leftBrow.position.set(-0.16, 0.45, faceZ);
+  const rightBrow = new THREE.Mesh(browGeo, browMat);
+  rightBrow.position.set(0.16, 0.45, faceZ);
 
-  const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.29, 0.035, 12, 40), mat(0xffffff, { roughness: 0.42 }));
-  scarf.position.y = 1.32;
-  scarf.scale.set(1, 0.18, 0.82);
+  const smile = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.016, 8, 20, Math.PI), smileMat);
+  smile.position.set(0, 0.16, faceZ);
+  smile.rotation.z = Math.PI;
 
-  group.add(shadow, leftLeg, rightLeg, body, scarf, leftArm, rightArm, head, hairCap, bang, leftEye, rightEye, smile);
-  group.scale.setScalar(player ? 1.02 : 0.94);
-  return group;
+  const blushGeo = new THREE.CircleGeometry(0.055, 12);
+  const leftBlush = new THREE.Mesh(blushGeo, blushMat);
+  leftBlush.position.set(-0.24, 0.18, faceZ);
+  leftBlush.rotation.y = Math.PI;
+  const rightBlush = new THREE.Mesh(blushGeo, blushMat);
+  rightBlush.position.set(0.24, 0.18, faceZ);
+  rightBlush.rotation.y = Math.PI;
+
+  head.add(face, hairTop, hairBack, fringe, leftEye, rightEye, leftBrow, rightBrow, smile, leftBlush, rightBlush);
+
+  group.add(shadow, leftLeg, rightLeg, body, placket, leftArm, rightArm, head);
+
+  if (player) {
+    // 주인공: 노란 탐험가 모자(챙=앞) + 빨간 백팩(=뒤) + 발밑 진행 방향 화살표
+    const capTop = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.2, 0.68), capMat);
+    capTop.position.set(0, 0.62, 0);
+    capTop.castShadow = true;
+    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.06, 0.3), capMat);
+    brim.position.set(0, 0.53, -0.46);
+    head.add(capTop, brim);
+
+    const pack = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.44, 0.22), packMat);
+    pack.position.set(0, 0.78, 0.3);
+    pack.castShadow = true;
+    const pocket = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.2, 0.06), mat(0xfca5a5, { roughness: 0.6 }));
+    pocket.position.set(0, 0.68, 0.43);
+    group.add(pack, pocket);
+
+    const tri = new THREE.Shape();
+    tri.moveTo(-0.16, 0);
+    tri.lineTo(0.16, 0);
+    tri.lineTo(0, 0.34);
+    const arrowGeo = new THREE.ShapeGeometry(tri);
+    arrowGeo.rotateX(-Math.PI / 2);
+    const arrow = new THREE.Mesh(
+      arrowGeo,
+      new THREE.MeshBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.55, depthWrite: false })
+    );
+    arrow.position.set(0, 0.045, -0.62);
+    group.add(arrow);
+  }
+
+  group.scale.setScalar(player ? 1.04 : 0.94);
+  return {
+    group,
+    parts: { leftArm, rightArm, leftLeg, rightLeg, body, head },
+  };
 }
 
 function createFogModel() {
@@ -246,6 +342,26 @@ function disposeScene(scene, renderer) {
   renderer.dispose();
 }
 
+// 걷기 애니메이션: 팔다리 스윙 + 몸통 통통 튀는 바운스
+function applyWalkPose(parts, t, moving) {
+  const swing = moving ? Math.sin(t * 11) * 0.65 : 0;
+  parts.leftArm.rotation.x = swing;
+  parts.rightArm.rotation.x = -swing;
+  parts.leftLeg.rotation.x = -swing * 0.9;
+  parts.rightLeg.rotation.x = swing * 0.9;
+  if (!moving) {
+    // 숨쉬기 유휴 모션
+    const breathe = 1 + Math.sin(t * 2.4) * 0.012;
+    parts.body.scale.set(1, breathe, 1);
+    parts.leftArm.rotation.z = 0.06 + Math.sin(t * 2.4) * 0.02;
+    parts.rightArm.rotation.z = -0.06 - Math.sin(t * 2.4) * 0.02;
+  } else {
+    parts.body.scale.set(1, 1, 1);
+    parts.leftArm.rotation.z = 0.04;
+    parts.rightArm.rotation.z = -0.04;
+  }
+}
+
 export default function GameWorld({
   playerRef,
   inputRef,
@@ -278,7 +394,9 @@ export default function GameWorld({
     scene.fog = new THREE.Fog(0xcdeeff, 42, 130);
 
     const aspect = mount.clientWidth / mount.clientHeight || 1;
-    const cameraSize = 18.5;
+    // ?zoom=2 처럼 붙이면 확대 (수업 시연·검증용)
+    const zoom = Math.max(0.5, Math.min(4, parseFloat(new URLSearchParams(window.location.search).get("zoom")) || 1));
+    const cameraSize = 18.5 / zoom;
     const camera = new THREE.OrthographicCamera(
       (-cameraSize * aspect) / 2,
       (cameraSize * aspect) / 2,
@@ -317,8 +435,8 @@ export default function GameWorld({
     buildTerrain(scene);
     buildDecorations(scene);
 
-    const playerGroup = createCharacterModel({ color: 0xffcf5a, hair: 0x25314d, player: true });
-    scene.add(playerGroup);
+    const playerChar = createCharacterModel({ color: 0xffcf5a, hair: 0x25314d, player: true });
+    scene.add(playerChar.group);
 
     questRefs.current.clear();
     quests.forEach((quest) => {
@@ -339,9 +457,9 @@ export default function GameWorld({
       );
       ring.rotation.x = Math.PI / 2;
       ring.position.y = 0.2;
-      group.add(base, ring, character, gem);
+      group.add(base, ring, character.group, gem);
       scene.add(group);
-      questRefs.current.set(quest.id, { group, gem, ring, character });
+      questRefs.current.set(quest.id, { group, gem, ring, character, pos: quest.pos });
     });
 
     fogRefs.current.clear();
@@ -417,7 +535,16 @@ export default function GameWorld({
           const blocked = fogsRef.current.some(
             (fog) => !fog.cleared && Math.hypot(fog.x - tx, fog.z - tz) < 1.65
           );
-          if (blocked) {
+          // NPC 단상·연못은 조용히 막는다 (대화는 4.4 반경에서 이미 가능)
+          const bumpNpc = quests.some(
+            (quest) => Math.hypot(quest.pos[0] - tx, quest.pos[1] - tz) < 1.5
+          );
+          const inWater =
+            (tx - 34) ** 2 + (tz + 30) ** 2 < 64 ||
+            (tx + 35) ** 2 + (tz + 28) ** 2 < 50;
+          if (bumpNpc || inWater) {
+            // 이동만 멈추고 토스트는 띄우지 않는다
+          } else if (blocked) {
             if (now - lastBlockedToast > 1600) {
               lastBlockedToast = now;
               onBlockedRef.current?.();
@@ -426,15 +553,21 @@ export default function GameWorld({
             player.x = tx;
             player.z = tz;
           }
-          player.dir = Math.atan2(wx, -wz);
+          // 모델 정면은 -z: rotation.y=θ일 때 정면 벡터는 (-sinθ, -cosθ)
+          player.dir = Math.atan2(-wx, -wz);
           player.moving = true;
         } else {
           player.moving = false;
         }
       }
 
-      playerGroup.position.set(player.x, player.moving ? Math.abs(Math.sin(t * 10)) * 0.08 : 0, player.z);
-      playerGroup.rotation.y = player.dir;
+      playerChar.group.position.set(
+        player.x,
+        player.moving ? Math.abs(Math.sin(t * 11)) * 0.09 : 0,
+        player.z
+      );
+      playerChar.group.rotation.y = lerpAngle(playerChar.group.rotation.y, player.dir, 0.28);
+      applyWalkPose(playerChar.parts, t, player.moving);
 
       camTarget.set(player.x + 7.8, 8.4, player.z + 7.8);
       camera.position.lerp(camTarget, 0.16);
@@ -446,11 +579,31 @@ export default function GameWorld({
       clouds.position.x = player.x * 0.7 + Math.sin(t * 0.08) * 0.8;
       clouds.position.z = player.z * 0.7;
 
-      questRefs.current.forEach(({ gem, group, ring }, id) => {
+      questRefs.current.forEach(({ gem, group, ring, character, pos }, id) => {
         gem.rotation.y += 0.025;
         gem.position.y = 2.38 + Math.sin(t * 2.2 + id.length) * 0.12;
         ring.rotation.z += 0.006;
-        group.rotation.y = Math.sin(t * 0.8 + id.length) * 0.035;
+        // NPC는 플레이어가 다가오면 몸을 돌려 마주 본다
+        const dx = player.x - pos[0];
+        const dz = player.z - pos[1];
+        const distance = Math.hypot(dx, dz);
+        const targetDir = distance < 9
+          ? Math.atan2(-dx, -dz)
+          : -Math.PI * 0.75 + Math.sin(t * 0.8 + id.length) * 0.2;
+        character.group.rotation.y = lerpAngle(character.group.rotation.y, targetDir, 0.06);
+        applyWalkPose(character.parts, t + id.length, false);
+      });
+
+      // 다른 탐험가(피어): 위치 보간 + 이동 중이면 걷기 모션
+      peerRefs.current.forEach((entry) => {
+        const { character, target } = entry;
+        const g = character.group;
+        g.position.x += (target.x - g.position.x) * 0.22;
+        g.position.z += (target.z - g.position.z) * 0.22;
+        g.rotation.y = lerpAngle(g.rotation.y, target.dir, 0.22);
+        const peerMoving = now - entry.lastMoveAt < 400;
+        g.position.y = peerMoving ? Math.abs(Math.sin(t * 11)) * 0.09 : 0;
+        applyWalkPose(character.parts, t, peerMoving);
       });
 
       fogsRef.current.forEach((fog) => {
@@ -497,19 +650,25 @@ export default function GameWorld({
     const liveIds = new Set(peers.map((peer) => peer.id));
 
     peers.forEach((peer) => {
-      let group = peerRefs.current.get(peer.id);
-      if (!group) {
-        group = createCharacterModel({ color: parseInt(String(peer.color).replace("#", ""), 16) || 0x38bdf8, hair: peer.hair || 0x26314d });
-        world.scene.add(group);
-        peerRefs.current.set(peer.id, group);
+      let entry = peerRefs.current.get(peer.id);
+      if (!entry) {
+        const character = createCharacterModel({
+          color: parseInt(String(peer.color).replace("#", ""), 16) || 0x38bdf8,
+          hair: peer.hair || 0x26314d,
+        });
+        character.group.position.set(peer.player.x, 0, peer.player.z);
+        world.scene.add(character.group);
+        entry = { character, target: { ...peer.player }, lastMoveAt: 0 };
+        peerRefs.current.set(peer.id, entry);
       }
-      group.position.set(peer.player.x, 0, peer.player.z);
-      group.rotation.y = peer.player.dir;
+      const movedDistance = Math.hypot(peer.player.x - entry.target.x, peer.player.z - entry.target.z);
+      if (movedDistance > 0.05) entry.lastMoveAt = performance.now();
+      entry.target = { ...peer.player };
     });
 
-    peerRefs.current.forEach((group, id) => {
+    peerRefs.current.forEach((entry, id) => {
       if (!liveIds.has(id)) {
-        world.scene.remove(group);
+        world.scene.remove(entry.character.group);
         peerRefs.current.delete(id);
       }
     });
