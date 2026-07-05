@@ -779,7 +779,9 @@ function Game() {
   }, [playerHud, discovered, treasures, foundEggs]);
 
   const openQuest = useCallback((quest) => {
-    setActiveQuest({ quest, view: null });
+    // 정답이 늘 왼쪽에 오지 않도록 선택지 순서를 무작위로 섞는다 (패턴 학습 방지)
+    const choices = Math.random() < 0.5 ? [...quest.choices] : [...quest.choices].reverse();
+    setActiveQuest({ quest, view: null, choices });
   }, []);
   const openQuestRef = useRef(openQuest);
   openQuestRef.current = openQuest;
@@ -1501,7 +1503,7 @@ function Game() {
 
             {dialogView === "ask" && (
               <div className="choice-grid">
-                {activeQuest.quest.choices.map((choice) => (
+                {(activeQuest.choices || activeQuest.quest.choices).map((choice) => (
                   <button key={choice.text} onClick={() => choose(choice)}>
                     {choice.text}
                   </button>
