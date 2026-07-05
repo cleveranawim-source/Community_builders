@@ -1055,8 +1055,9 @@ export default function GameWorld({
         return;
       }
       const now = performance.now();
-      // 프레임 제한 (1ms 여유로 경계 프레임 놓침 방지)
-      if (now - lastFrame < FRAME_MS - 1) return;
+      // 대화·엔딩·인트로처럼 배경이 정지/블러일 땐 프레임을 더 낮춰 발열을 아낀다
+      const frameGap = runningRef.current ? FRAME_MS : 1000 / 20;
+      if (now - lastFrame < frameGap - 1) return;
       lastFrame = now;
       const dt = Math.min((now - last) / 1000, 0.05);
       last = now;

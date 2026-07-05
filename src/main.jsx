@@ -421,7 +421,7 @@ function TeacherBoard() {
   );
 }
 
-function saveResultCard({ name, score, energy, cleared, gems, title }) {
+function saveResultCard({ name, room, score, energy, cleared, gems, title }) {
   const canvas = document.createElement("canvas");
   canvas.width = 1000;
   canvas.height = 700;
@@ -439,22 +439,28 @@ function saveResultCard({ name, score, energy, cleared, gems, title }) {
 
   ctx.fillStyle = "#facc15";
   ctx.font = "900 30px 'Apple SD Gothic Neo', sans-serif";
-  ctx.fillText("공동체 빌더스 · 마을 완성 인증서", 60, 96);
+  ctx.fillText("공동체 빌더스 · 마을 완성 인증서", 60, 92);
+
+  // 닉네임을 확실히 강조 — "탐험가"로 끝나는 닉네임은 중복 표기하지 않는다
+  const displayName = /탐험가$/.test(name) ? name : `${name} 탐험가`;
+  ctx.fillStyle = "#7dd3fc";
+  ctx.font = "800 22px 'Apple SD Gothic Neo', sans-serif";
+  ctx.fillText(room ? `${room}반 · 닉네임` : "닉네임", 60, 150);
 
   ctx.fillStyle = "#f8fafc";
   ctx.font = "900 58px 'Apple SD Gothic Neo', sans-serif";
-  ctx.fillText(`${name} 탐험가`, 60, 180);
+  ctx.fillText(displayName, 60, 210);
 
   ctx.fillStyle = "#94e2b8";
   ctx.font = "800 30px 'Apple SD Gothic Neo', sans-serif";
-  ctx.fillText(`칭호: ${title}`, 60, 232);
+  ctx.fillText(`칭호: ${title}`, 60, 262);
 
   ctx.fillStyle = "#cbd5e1";
   ctx.font = "700 22px 'Apple SD Gothic Neo', sans-serif";
-  ctx.fillText(`16개 미션 완주 · 빛장벽 ${cleared}개 해제 · 마음 조각 ${gems}개 · 에너지 ${energy}`, 60, 280);
+  ctx.fillText(`16개 미션 완주 · 빛장벽 ${cleared}개 해제 · 마음 조각 ${gems}개 · 에너지 ${energy}`, 60, 304);
 
   stats.forEach((stat, index) => {
-    const y = 348 + index * 74;
+    const y = 366 + index * 70;
     const value = score[stat.key] || 0;
     ctx.fillStyle = "#e2e8f0";
     ctx.font = "800 24px 'Apple SD Gothic Neo', sans-serif";
@@ -472,12 +478,15 @@ function saveResultCard({ name, score, energy, cleared, gems, title }) {
     ctx.fillText(String(value), 880, y + 8);
   });
 
+  const today = new Date().toLocaleDateString("ko-KR");
   ctx.fillStyle = "#94a3b8";
   ctx.font = "700 20px 'Apple SD Gothic Neo', sans-serif";
-  ctx.fillText(`${new Date().toLocaleDateString("ko-KR")} · 사회정서교육(SEL) 공동체 활동`, 60, 648);
+  ctx.fillText(`${today} · 사회정서교육(SEL) 공동체 활동`, 60, 656);
 
+  const stamp = new Date().toISOString().slice(0, 10);
+  const roomTag = room ? `${room}반_` : "";
   const link = document.createElement("a");
-  link.download = `공동체빌더스_${name}.png`;
+  link.download = `공동체빌더스_${roomTag}${name}_${stamp}.png`;
   link.href = canvas.toDataURL("image/png");
   link.click();
 }
@@ -1365,6 +1374,7 @@ function Game() {
                 className="primary"
                 onClick={() => saveResultCard({
                   name: profile.name,
+                  room: profile.room,
                   score,
                   energy,
                   cleared: clearedFogCount,
