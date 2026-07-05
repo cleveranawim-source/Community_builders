@@ -372,6 +372,42 @@ function createFogModel() {
   return { group, mats: [crystalMat, ringMat] };
 }
 
+// 안개 빌런: 어두운 보라 안개 유령. 진정(스턴) 시 밝게 변한다.
+function createVillainModel() {
+  const group = new THREE.Group();
+  const bodyMat = mat(0x5a4a7a, {
+    roughness: 0.5,
+    transparent: true,
+    opacity: 0.92,
+    emissive: new THREE.Color(0x3a2f55),
+    emissiveIntensity: 0.4,
+  });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.7, 20, 16), bodyMat);
+  body.scale.set(1, 1.15, 1);
+  body.castShadow = true;
+  const spikeMat = mat(0x4a3a6a, { roughness: 0.6, transparent: true, opacity: 0.78 });
+  [-0.45, -0.15, 0.15, 0.45].forEach((x, i) => {
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.5, 8), spikeMat);
+    spike.position.set(x, -0.7 - (i % 2) * 0.1, 0);
+    spike.rotation.x = Math.PI;
+    group.add(spike);
+  });
+  const eyeMat = mat(0xfff0d0, { emissive: new THREE.Color(0xffe0a0), emissiveIntensity: 0.6, roughness: 0.3 });
+  const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), eyeMat);
+  leftEye.position.set(-0.22, 0.12, -0.6);
+  leftEye.scale.set(1, 0.6, 1);
+  const rightEye = leftEye.clone();
+  rightEye.position.x = 0.22;
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.85, 0.05, 8, 40),
+    mat(0x8b7bb5, { transparent: true, opacity: 0.5, emissive: new THREE.Color(0x6d5a9c), emissiveIntensity: 0.4 })
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = -0.2;
+  group.add(body, leftEye, rightEye, ring);
+  return { group, bodyMat, ring };
+}
+
 // 마음 조각(보물): 반짝이는 작은 하트
 // 씬 dispose와 함께 정리되도록 캐시 없이 매번 생성한다 (24개, 비용 미미)
 function createTreasureMesh() {
@@ -828,6 +864,7 @@ export default function GameWorld({
   fogsRef,
   treasuresRef,
   foundEggsRef,
+  villainRef,
   boostUntilRef,
   runningRef,
   solved,
@@ -1042,6 +1079,11 @@ export default function GameWorld({
       eggMarkers.push({ id: egg.id, group: g, sparkle });
     });
 
+    // 안개 빌런 모델
+    const villain = createVillainModel();
+    villain.group.position.set(34, 1.4, 34);
+    scene.add(villain.group);
+
     sceneRef.current = { scene, camera, renderer };
     if (import.meta.env.DEV) globalThis.__cbRenderer = renderer;
 
@@ -1164,6 +1206,37 @@ export default function GameWorld({
           m.sparkle.position.y = 0.9 + Math.sin(t * 2 + i) * 0.15;
         }
       });
+
+      // 안개 빌런: 배회 이동, 진정(스턴) 시 밝아지고 멈춤
+      const v = villainRef?.current;
+      if (v && v.active) {
+        villain.group.visible = true;
+        const isStunned = v.stunUntil > Date.now();
+        // 목표 도달하면 새 목표: 가까운 깬 장벽 또는 랜덤 지점
+        if (Math.hypot(v.x - v.tx, v.z - v.tz) < 2) {
+          const revive = fogsRef.current.find(
+            (f) => f.cleared && Math.hypot(f.x - v.x, f.z - v.z) < 34 && Math.random() < 0.4
+          );
+          if (revive) { v.tx = revive.x; v.tz = revive.z; }
+          else { v.tx = (Math.random() * 2 - 1) * 44; v.tz = (Math.random() * 2 - 1) * 44; }
+        }
+        const prog = progressRef.current || 0;
+        const speed = isStunned ? 0 : 3.2 * (1 - prog * 0.5);
+        const dx = v.tx - v.x, dz = v.tz - v.z;
+        const dd = Math.hypot(dx, dz);
+        if (dd > 0.1 && !isStunned) {
+          v.x += (dx / dd) * speed * dt;
+          v.z += (dz / dd) * speed * dt;
+        }
+        villain.group.position.set(v.x, 1.4 + Math.sin(t * 2) * 0.16, v.z);
+        villain.group.rotation.y = Math.atan2(dx, dz) + Math.PI;
+        villain.ring.rotation.z += dt * (isStunned ? 0.4 : 2.2);
+        // 스턴 시 밝게(진정), 아니면 어둡게
+        villain.bodyMat.emissiveIntensity = isStunned ? 1.3 : 0.4;
+        villain.bodyMat.color.setHex(isStunned ? 0xc9b8f0 : 0x5a4a7a);
+      } else if (v) {
+        villain.group.visible = false;
+      }
 
       // 진행도에 따라 전역 안개가 서서히 걷힌다
       const progressNow = clamp(progressRef.current || 0, 0, 1);

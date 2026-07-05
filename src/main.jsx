@@ -562,6 +562,9 @@ function Game() {
   const foundEggsRef = useRef(foundEggs);
   const projectilesRef = useRef(projectiles);
   const nearQuestRef = useRef(null);
+  // 안개 빌런: 배회하며 깬 장벽에 안개를 되살림, 빛구슬 맞으면 진정(스턴)
+  const villainRef = useRef({ x: 34, z: 34, tx: 34, tz: 34, stunUntil: 0, active: true });
+  const worldProgressRef = useRef(0);
 
   const completed = Object.values(solved).filter(Boolean).length;
   const discoveredCount = Object.values(discovered).filter(Boolean).length;
@@ -610,7 +613,7 @@ function Game() {
   }, [clearedFogCount]);
 
   if (import.meta.env.DEV) {
-    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef, fogsRef, playerHud, easterEggs, foundEggs };
+    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef, fogsRef, playerHud, easterEggs, foundEggs, villainRef, worldProgressRef };
   }
 
   useEffect(() => {
@@ -858,6 +861,8 @@ function Game() {
       const fogsNow = fogsRef.current;
       const next = [];
       const hitFogIds = new Set();
+      let villainHitNow = false;
+      const villain = villainRef.current;
 
       current.forEach((projectile) => {
         const moved = {
@@ -866,6 +871,12 @@ function Game() {
           z: projectile.z + projectile.dz * 1.2,
           life: projectile.life - 1,
         };
+        // 빌런 명중 → 진정(스턴)
+        if (villain.active && villain.stunUntil < Date.now() &&
+            Math.hypot(villain.x - moved.x, villain.z - moved.z) < 1.7) {
+          villainHitNow = true;
+          return;
+        }
         const hit = fogsNow.find(
           (fog) => !fog.cleared && Math.hypot(fog.x - moved.x, fog.z - moved.z) < 1.45
         );
@@ -875,6 +886,12 @@ function Game() {
           next.push(moved);
         }
       });
+
+      if (villainHitNow) {
+        villain.stunUntil = Date.now() + 5000;
+        setToast("💛 안개 빌런을 진정시켰어요! 잠시 안개를 멈춰요.");
+        sfx.solve();
+      }
 
       if (hitFogIds.size) {
         // 이번 타격으로 실제 '파괴'된 장벽만 점수·팝업에 반영 (hp 여러 방)
@@ -910,6 +927,31 @@ function Game() {
     }, 70);
     return () => window.clearInterval(interval);
   }, []);
+
+  // 안개 빌런: 주기적으로 근처 깬 장벽에 안개를 되살린다 (스턴 아닐 때만).
+  // 반 밝기가 높으면 약해져 사라진다 — 노력하면 이긴다는 감각을 준다.
+  useEffect(() => {
+    if (!started) return undefined;
+    const iv = window.setInterval(() => {
+      const v = villainRef.current;
+      if (!v.active) return;
+      // 마을이 충분히 밝아지면 빌런이 사라진다
+      if (worldProgressRef.current >= 0.85) {
+        v.active = false;
+        setToast("🌈 마을이 밝아지자 안개 빌런이 스르르 사라졌어요!");
+        return;
+      }
+      if (v.stunUntil > Date.now()) return; // 진정 중엔 안개 못 퍼뜨림
+      const revived = fogsRef.current.find(
+        (f) => f.cleared && Math.hypot(f.x - v.x, f.z - v.z) < 9
+      );
+      if (revived) {
+        setFogs((prev) => prev.map((f) => (f.id === revived.id ? { ...f, cleared: false, dmg: 0 } : f)));
+        setToast("😈 안개 빌런이 안개를 다시 퍼뜨렸어요! 공감 빛구슬로 막아요.");
+      }
+    }, 3800);
+    return () => window.clearInterval(iv);
+  }, [started]);
 
   // 로컬 멀티플레이(WS): http 환경에서만, 접속은 1회만 맺고 위치는 주기 전송
   useEffect(() => {
@@ -1095,6 +1137,7 @@ function Game() {
     setTreasures(resetTreasures);
     treasuresRef.current = resetTreasures;
     setFoundEggs({});
+    villainRef.current = { x: 34, z: 34, tx: 34, tz: 34, stunUntil: 0, active: true };
     setProjectiles([]);
     projectilesRef.current = [];
     setEnergy(0);
@@ -1147,6 +1190,7 @@ function Game() {
   const personalProgress = (completed / quests.length) * 0.75 + (clearedFogCount / fogs.length) * 0.25;
   // 반 모드에서는 반 전체 밝기와 개인 진행 중 더 밝은 쪽으로 안개가 걷힌다
   const worldProgress = classBrightness ? Math.max(personalProgress, classBrightness.ratio) : personalProgress;
+  worldProgressRef.current = worldProgress;
 
   const dialogView = activeQuest
     ? activeQuest.view || (solved[activeQuest.quest.id] ? "recap" : "ask")
@@ -1187,6 +1231,7 @@ function Game() {
         fogsRef={fogsRef}
         treasuresRef={treasuresRef}
         foundEggsRef={foundEggsRef}
+        villainRef={villainRef}
         boostUntilRef={boostUntilRef}
         runningRef={runningRef}
         solved={solved}
