@@ -3,9 +3,9 @@ import { createRoot } from "react-dom/client";
 import {
   BadgeCheck,
   MapIcon,
+  Menu,
   Navigation,
   PartyPopper,
-  RotateCcw,
   Sparkles,
   UsersRound,
 } from "lucide-react";
@@ -503,7 +503,7 @@ function makeUser() {
 function Game() {
   const [profile, setProfile] = useState(null);
   const [user, setUser] = useState(null);
-  const [savedGame] = useState(loadSave);
+  const [savedGame, setSavedGame] = useState(loadSave);
   const started = !!profile;
 
   // 30명이 동시에 시작해도 겹치지 않도록 광장 둘레 랜덤 지점에 스폰
@@ -1042,6 +1042,15 @@ function Game() {
     setConfirmReset(false);
   };
 
+  // 시작 화면으로 나가기 — 진행은 자동저장되므로 '이어서 하기'로 복귀 가능
+  const goHome = () => {
+    saveNowRef.current();          // 현재 진행을 즉시 저장
+    setSavedGame(loadSave());      // 시작 화면의 '이어서 하기'에 최신 진행 반영
+    setActiveQuest(null);
+    setConfirmReset(false);
+    setProfile(null);              // started=false → 시작 화면 표시
+  };
+
   // 가장 가까운 미해결 거점으로 향하는 화면 기준 안내 각도
   const guide = useMemo(() => {
     let best = null;
@@ -1255,14 +1264,14 @@ function Game() {
         <FireButton onStart={startFiring} onStop={stopFiring} />
       </section>
 
-      {/* 다시 시작: 작은 아이콘 버튼 (확인 후 실행) */}
+      {/* 우상단: 메뉴 열기 (계속하기 · 홈으로 · 다시 시작) */}
       <button
-        className="restart-mini"
+        className="corner-btn menu"
         onClick={() => setConfirmReset(true)}
-        title="처음부터 다시 시작"
-        aria-label="처음부터 다시 시작"
+        title="메뉴"
+        aria-label="메뉴 열기"
       >
-        <RotateCcw size={16} />
+        <Menu size={17} />
       </button>
 
       {/* 미션 근접 안내 배너 */}
@@ -1291,12 +1300,14 @@ function Game() {
       {confirmReset && (
         <section className="dialog-layer" onClick={() => setConfirmReset(false)}>
           <div className="confirm-box" onClick={(event) => event.stopPropagation()}>
-            <h3>처음부터 다시 시작할까요?</h3>
-            <p>지금까지 해결한 미션과 모은 마음 조각이 모두 사라집니다.</p>
-            <div className="confirm-actions">
-              <button className="ghost" onClick={() => setConfirmReset(false)}>계속하기</button>
-              <button className="danger" onClick={reset}>다시 시작</button>
+            <h3>잠깐 멈췄어요</h3>
+            <p>계속할지, 홈으로 나갈지, 처음부터 다시 시작할지 골라 주세요.</p>
+            <div className="confirm-menu">
+              <button className="primary" onClick={() => setConfirmReset(false)}>계속하기</button>
+              <button className="ghost" onClick={goHome}>홈으로 나가기</button>
+              <button className="danger" onClick={reset}>처음부터 다시 시작</button>
             </div>
+            <p className="confirm-note">홈으로 나가도 진행 상황은 저장돼요.</p>
           </div>
         </section>
       )}
@@ -1385,6 +1396,7 @@ function Game() {
                 인증서 저장
               </button>
               <button onClick={() => setEndingDismissed(true)}>계속 탐험</button>
+              <button onClick={goHome}>메인으로</button>
               <button onClick={() => setConfirmReset(true)}>다시 시작</button>
             </div>
           </div>
