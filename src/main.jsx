@@ -532,6 +532,7 @@ function Game() {
   const [fogs, setFogs] = useState(() => fogSeeds.map((fog) => ({ ...fog, cleared: false, dmg: 0 })));
   const [treasures, setTreasures] = useState(() => treasureSeeds.map((t) => ({ ...t, found: false })));
   const [foundEggs, setFoundEggs] = useState({});
+  const [eggPopup, setEggPopup] = useState(null);
   const [codexOpen, setCodexOpen] = useState(false);
   const [projectiles, setProjectiles] = useState([]);
   const [energy, setEnergy] = useState(0);
@@ -619,7 +620,7 @@ function Game() {
   }, [clearedFogCount]);
 
   if (import.meta.env.DEV) {
-    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef, fogsRef, playerHud, easterEggs, foundEggs, villainsRef, worldProgressRef };
+    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef, fogsRef, playerHud, easterEggs, foundEggs, villainsRef, worldProgressRef, setEggPopup };
   }
 
   useEffect(() => {
@@ -753,15 +754,16 @@ function Game() {
       sfx.pickup();
     }
 
-    // 숨은 이스터에그 발견
+    // 숨은 이스터에그 발견 → 전용 축하 팝업
     const newEgg = easterEggs.find(
-      (egg) => !foundEggs[egg.id] && Math.hypot(egg.x - playerHud.x, egg.z - playerHud.z) < 3.5
+      (egg) => !foundEggs[egg.id] && Math.hypot(egg.x - playerHud.x, egg.z - playerHud.z) < 2.6
     );
     if (newEgg) {
+      const total = Object.values(foundEggs).filter(Boolean).length + 1;
       setFoundEggs((prev) => ({ ...prev, [newEgg.id]: true }));
-      setToast(`${newEgg.icon} ${newEgg.toast}`);
+      setEggPopup({ ...newEgg, count: total });
       setEnergy((prev) => Math.min(100, prev + 10));
-      sfx.discover();
+      sfx.ending();
     }
 
     let nearest = null;
@@ -1467,6 +1469,20 @@ function Game() {
                 );
               })}
             </div>
+          </div>
+        </section>
+      )}
+
+      {eggPopup && (
+        <section className="dialog-layer" onClick={() => setEggPopup(null)}>
+          <div className="egg-popup" onClick={(event) => event.stopPropagation()}>
+            <div className="egg-popup-glow" aria-hidden="true" />
+            <div className="egg-popup-icon">{eggPopup.icon}</div>
+            <p className="egg-popup-kicker">숨은 장소 발견!</p>
+            <h3 className="egg-popup-name">{eggPopup.name}</h3>
+            <p className="egg-popup-text">{eggPopup.toast}</p>
+            <p className="egg-popup-count">숨은 장소 {eggPopup.count}/{easterEggs.length} 발견</p>
+            <button className="primary" onClick={() => setEggPopup(null)}>계속 탐험하기</button>
           </div>
         </section>
       )}

@@ -719,6 +719,102 @@ meter::-webkit-meter-optimum-value {
   font-weight: 700 !important;
 }
 
+/* 숨은 장소(이스터에그) 발견 축하 팝업 */
+.egg-popup {
+  position: relative;
+  width: min(340px, 100%);
+  border-radius: 26px;
+  padding: 30px 26px 24px;
+  text-align: center;
+  overflow: hidden;
+  background: linear-gradient(155deg, rgba(48, 38, 20, .98), rgba(24, 18, 34, .97));
+  border: 1px solid rgba(255, 224, 138, .45);
+  box-shadow: 0 26px 70px rgba(0,0,0,.55), inset 0 0 40px rgba(255, 224, 138, .12);
+  animation: egg-pop-in .42s cubic-bezier(.18, 1.3, .4, 1) both;
+}
+
+.egg-popup-glow {
+  position: absolute;
+  top: -60px;
+  left: 50%;
+  width: 220px;
+  height: 220px;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(255, 224, 138, .38), transparent 68%);
+  pointer-events: none;
+  animation: egg-glow-pulse 2.6s ease-in-out infinite;
+}
+
+.egg-popup-icon {
+  position: relative;
+  font-size: 58px;
+  line-height: 1;
+  filter: drop-shadow(0 6px 16px rgba(255, 210, 120, .5));
+  animation: egg-icon-float 2.4s ease-in-out infinite;
+}
+
+.egg-popup-kicker {
+  position: relative;
+  margin: 14px 0 2px;
+  font-size: 12.5px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  color: #ffd98a;
+}
+
+.egg-popup-name {
+  position: relative;
+  margin: 2px 0 0;
+  font-size: 22px;
+  font-weight: 950;
+  color: #fff6e0;
+}
+
+.egg-popup-text {
+  position: relative;
+  margin: 12px 0 0;
+  color: #e9dcc4;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.6;
+  word-break: keep-all;
+}
+
+.egg-popup-count {
+  position: relative;
+  margin: 16px 0 0;
+  font-size: 13px;
+  font-weight: 900;
+  color: #ffd98a;
+}
+
+.egg-popup .primary {
+  position: relative;
+  width: 100%;
+  min-height: 50px;
+  margin-top: 18px;
+  border-radius: 14px;
+  font-weight: 950;
+  font-size: 15px;
+  color: #3a2a08;
+  background: linear-gradient(160deg, #ffe6a3, #f5c665);
+}
+
+@keyframes egg-pop-in {
+  from { opacity: 0; transform: scale(.82) translateY(14px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes egg-glow-pulse {
+  0%, 100% { opacity: .7; }
+  50% { opacity: 1; }
+}
+
+@keyframes egg-icon-float {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50% { transform: translateY(-6px) rotate(3deg); }
+}
+
 /* 장벽 파괴 시 점수 상승 팝업 (화면 중앙에서 떠오름) */
 .score-pops {
   position: absolute;

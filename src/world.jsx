@@ -1062,17 +1062,18 @@ export default function GameWorld({
     const eggMarkers = [];
     easterEggs.forEach((egg) => {
       const g = new THREE.Group();
+      // 더 작고 은은하게 — 가까이 가야 눈에 띈다
       const sparkle = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.28, 0),
-        mat(0xfff2b0, { emissive: new THREE.Color(0xffe08a), emissiveIntensity: 0.9, roughness: 0.2, transparent: true, opacity: 0.85 })
+        new THREE.OctahedronGeometry(0.16, 0),
+        mat(0xfff2b0, { emissive: new THREE.Color(0xffe08a), emissiveIntensity: 0.55, roughness: 0.25, transparent: true, opacity: 0.55 })
       );
-      sparkle.position.y = 0.9;
+      sparkle.position.y = 0.62;
       const halo = new THREE.Mesh(
-        new THREE.RingGeometry(0.5, 0.62, 24),
-        new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+        new THREE.RingGeometry(0.28, 0.34, 20),
+        new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.18, side: THREE.DoubleSide })
       );
       halo.rotation.x = -Math.PI / 2;
-      halo.position.y = 0.06;
+      halo.position.y = 0.05;
       g.add(sparkle, halo);
       g.position.set(egg.x, 0, egg.z);
       scene.add(g);
