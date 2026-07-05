@@ -54,15 +54,52 @@ function loadSave() {
   }
 }
 
+// 발사 버튼: 네이티브 터치로 즉시 반응 + 꾹 누르면 연사.
+// 조이스틱과 별개 손가락으로 동시에 눌러도 안정적으로 동작한다.
+function FireButton({ onStart, onStop }) {
+  const btnRef = useRef(null);
+  useEffect(() => {
+    const btn = btnRef.current;
+    if (!btn) return undefined;
+    const start = (event) => {
+      event.preventDefault(); // 터치 시 지연·고스트클릭·제스처 방지
+      onStart();
+    };
+    const stop = () => onStop();
+    btn.addEventListener("touchstart", start, { passive: false });
+    btn.addEventListener("touchend", stop);
+    btn.addEventListener("touchcancel", stop);
+    // 마우스(PC) 폴백
+    btn.addEventListener("mousedown", start);
+    window.addEventListener("mouseup", stop);
+    return () => {
+      btn.removeEventListener("touchstart", start);
+      btn.removeEventListener("touchend", stop);
+      btn.removeEventListener("touchcancel", stop);
+      btn.removeEventListener("mousedown", start);
+      window.removeEventListener("mouseup", stop);
+    };
+  }, [onStart, onStop]);
+
+  return (
+    <button ref={btnRef} className="shoot-fab" aria-label="공감 빛구슬 발사">
+      <Sparkles size={30} />
+      <em>빛구슬</em>
+    </button>
+  );
+}
+
+// 네이티브 터치 이벤트로 직접 처리해 태블릿 멀티터치를 안정화한다.
+// 각 손가락(touch.identifier)을 추적하므로 조이스틱과 발사 버튼을 동시에 쓸 수 있다.
 function Joystick({ inputRef }) {
   const padRef = useRef(null);
-  const activeRef = useRef(false);
+  const touchIdRef = useRef(null); // 이 조이스틱을 조작 중인 손가락 id
   const [thumb, setThumb] = useState({ x: 0, y: 0 });
 
-  const apply = (event) => {
+  const applyFromPoint = (clientX, clientY) => {
     const rect = padRef.current.getBoundingClientRect();
-    let dx = (event.clientX - (rect.left + rect.width / 2)) / (rect.width / 2);
-    let dy = (event.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
+    let dx = (clientX - (rect.left + rect.width / 2)) / (rect.width / 2);
+    let dy = (clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
     const len = Math.hypot(dx, dy);
     if (len > 1) {
       dx /= len;
@@ -72,28 +109,72 @@ function Joystick({ inputRef }) {
     setThumb({ x: dx, y: dy });
   };
 
-  const release = () => {
-    activeRef.current = false;
+  const reset = () => {
+    touchIdRef.current = null;
     inputRef.current.joy = { x: 0, y: 0 };
     setThumb({ x: 0, y: 0 });
   };
 
+  useEffect(() => {
+    const pad = padRef.current;
+    if (!pad) return undefined;
+
+    const findTouch = (list, id) => {
+      for (let i = 0; i < list.length; i += 1) {
+        if (list[i].identifier === id) return list[i];
+      }
+      return null;
+    };
+
+    const onStart = (event) => {
+      if (touchIdRef.current !== null) return; // 이미 다른 손가락이 조작 중
+      const t = event.changedTouches[0];
+      touchIdRef.current = t.identifier;
+      event.preventDefault();
+      applyFromPoint(t.clientX, t.clientY);
+    };
+    const onMove = (event) => {
+      if (touchIdRef.current === null) return;
+      const t = findTouch(event.touches, touchIdRef.current);
+      if (!t) return;
+      event.preventDefault();
+      applyFromPoint(t.clientX, t.clientY);
+    };
+    const onEnd = (event) => {
+      if (touchIdRef.current === null) return;
+      // 내 손가락이 떼졌을 때만 리셋 (다른 손가락 이벤트는 무시)
+      if (findTouch(event.changedTouches, touchIdRef.current)) reset();
+    };
+
+    // passive:false 로 등록해야 preventDefault가 실제로 먹는다(스크롤/제스처 차단)
+    pad.addEventListener("touchstart", onStart, { passive: false });
+    pad.addEventListener("touchmove", onMove, { passive: false });
+    pad.addEventListener("touchend", onEnd);
+    pad.addEventListener("touchcancel", onEnd);
+
+    // 마우스(PC) 폴백
+    let mouseDown = false;
+    const onMouseDown = (e) => { mouseDown = true; applyFromPoint(e.clientX, e.clientY); };
+    const onMouseMove = (e) => { if (mouseDown) applyFromPoint(e.clientX, e.clientY); };
+    const onMouseUp = () => { mouseDown = false; reset(); };
+    pad.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+
+    return () => {
+      pad.removeEventListener("touchstart", onStart);
+      pad.removeEventListener("touchmove", onMove);
+      pad.removeEventListener("touchend", onEnd);
+      pad.removeEventListener("touchcancel", onEnd);
+      pad.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
-    <div
-      className="joystick"
-      ref={padRef}
-      onPointerDown={(event) => {
-        event.currentTarget.setPointerCapture(event.pointerId);
-        activeRef.current = true;
-        apply(event);
-      }}
-      onPointerMove={(event) => {
-        if (activeRef.current) apply(event);
-      }}
-      onPointerUp={release}
-      onPointerCancel={release}
-      aria-label="이동 조이스틱"
-    >
+    <div className="joystick" ref={padRef} aria-label="이동 조이스틱">
       <span
         className="joystick-thumb"
         style={{ transform: `translate(${thumb.x * 34}px, ${thumb.y * 34}px)` }}
@@ -663,14 +744,13 @@ function Game() {
 
   // 빛구슬 버튼: 누르는 즉시 1발 + 꾹 누르고 있으면 연사 (이동하며 발사 가능)
   const holdFireRef = useRef(0);
-  const startFiring = useCallback((event) => {
-    if (event) event.preventDefault();
+  const startFiring = useCallback(() => {
     if (!runningRef.current) return;
     shootRef.current();
     window.clearInterval(holdFireRef.current);
     holdFireRef.current = window.setInterval(() => {
       if (runningRef.current) shootRef.current();
-    }, 260);
+    }, 240);
   }, []);
   const stopFiring = useCallback(() => {
     window.clearInterval(holdFireRef.current);
@@ -1160,17 +1240,7 @@ function Game() {
         >
           ⚡{boostActive ? boostLeft : ""}
         </button>
-        <button
-          className="shoot-fab"
-          onPointerDown={startFiring}
-          onPointerUp={stopFiring}
-          onPointerLeave={stopFiring}
-          onPointerCancel={stopFiring}
-          aria-label="공감 빛구슬 발사"
-        >
-          <Sparkles size={30} />
-          <em>빛구슬</em>
-        </button>
+        <FireButton onStart={startFiring} onStop={stopFiring} />
       </section>
 
       {/* 다시 시작: 작은 아이콘 버튼 (확인 후 실행) */}
