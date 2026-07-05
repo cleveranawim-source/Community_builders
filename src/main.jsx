@@ -167,7 +167,8 @@ function IntroScreen({ onStart, onContinue, savedGame }) {
           <Sparkles size={18} /> {savedGame ? "새로 시작" : "모험 시작"}
         </button>
         <p className="intro-help">
-          PC: WASD·화살표 이동 / 스페이스 빛구슬 / E 대화 · 모바일: 조이스틱
+          PC: 화살표·WASD 이동 / 스페이스 빛구슬 / E 대화
+          <br />모바일: 왼손 조이스틱 이동 · 오른손 빛구슬(꾹 누르면 연사)
         </p>
         <a className="teacher-link" href="#teacher">교사용 화면 열기 →</a>
       </div>
@@ -487,7 +488,7 @@ function Game() {
   }, [clearedFogCount]);
 
   if (import.meta.env.DEV) {
-    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef };
+    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef };
   }
 
   useEffect(() => {
@@ -659,6 +660,23 @@ function Game() {
   }, []);
   const shootRef = useRef(shoot);
   shootRef.current = shoot;
+
+  // 빛구슬 버튼: 누르는 즉시 1발 + 꾹 누르고 있으면 연사 (이동하며 발사 가능)
+  const holdFireRef = useRef(0);
+  const startFiring = useCallback((event) => {
+    if (event) event.preventDefault();
+    if (!runningRef.current) return;
+    shootRef.current();
+    window.clearInterval(holdFireRef.current);
+    holdFireRef.current = window.setInterval(() => {
+      if (runningRef.current) shootRef.current();
+    }, 260);
+  }, []);
+  const stopFiring = useCallback(() => {
+    window.clearInterval(holdFireRef.current);
+    holdFireRef.current = 0;
+  }, []);
+  useEffect(() => () => window.clearInterval(holdFireRef.current), []);
 
   // 키보드는 마운트 시 1회만 바인딩하고, 최신 상태는 ref로 읽는다.
   useEffect(() => {
@@ -1144,7 +1162,10 @@ function Game() {
         </button>
         <button
           className="shoot-fab"
-          onClick={() => runningRef.current && shoot()}
+          onPointerDown={startFiring}
+          onPointerUp={stopFiring}
+          onPointerLeave={stopFiring}
+          onPointerCancel={stopFiring}
           aria-label="공감 빛구슬 발사"
         >
           <Sparkles size={30} />

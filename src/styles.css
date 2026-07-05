@@ -325,6 +325,10 @@ meter::-webkit-meter-optimum-value {
   background: radial-gradient(circle at 50% 38%, #b6f7d6, #4ade80);
   box-shadow: 0 10px 26px rgba(0,0,0,.34), inset 0 -5px 0 rgba(0,0,0,.16);
   font-weight: 950;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .shoot-fab em {
