@@ -526,7 +526,7 @@ function Game() {
   const [answered, setAnswered] = useState({});
   const [discovered, setDiscovered] = useState({});
   const [peers, setPeers] = useState({});
-  const [fogs, setFogs] = useState(() => fogSeeds.map((fog) => ({ ...fog, cleared: false })));
+  const [fogs, setFogs] = useState(() => fogSeeds.map((fog) => ({ ...fog, cleared: false, dmg: 0 })));
   const [treasures, setTreasures] = useState(() => treasureSeeds.map((t) => ({ ...t, found: false })));
   const [projectiles, setProjectiles] = useState([]);
   const [energy, setEnergy] = useState(0);
@@ -544,6 +544,13 @@ function Game() {
   const [boostLeft, setBoostLeft] = useState(0);
   const [muted, setMutedState] = useState(getMuted);
   const [confirmReset, setConfirmReset] = useState(false);
+  // 점수 상승 팝업 (장벽 파괴 시 "+N"이 화면에 떠오름)
+  const [scorePops, setScorePops] = useState([]);
+  const addScorePop = useCallback((text, kind = "energy") => {
+    const id = uid();
+    setScorePops((prev) => [...prev.slice(-4), { id, text, kind }]);
+    window.setTimeout(() => setScorePops((prev) => prev.filter((p) => p.id !== id)), 1000);
+  }, []);
 
   const fogsRef = useRef(fogs);
   const treasuresRef = useRef(treasures);
@@ -581,7 +588,7 @@ function Game() {
   }, [clearedFogCount]);
 
   if (import.meta.env.DEV) {
-    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef };
+    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef, fogsRef };
   }
 
   useEffect(() => {
@@ -835,15 +842,34 @@ function Game() {
       });
 
       if (hitFogIds.size) {
-        setFogs((prev) => prev.map((fog) => (hitFogIds.has(fog.id) ? { ...fog, cleared: true } : fog)));
-        setEnergy((prev) => Math.min(100, prev + hitFogIds.size * 12));
-        setScore((prev) => ({
-          ...prev,
-          empathy: Math.min(100, prev.empathy + hitFogIds.size * 4),
-          community: Math.min(100, prev.community + hitFogIds.size * 5),
+        // 이번 타격으로 실제 '파괴'된 장벽만 점수·팝업에 반영 (hp 여러 방)
+        const snapshot = fogsRef.current;
+        let destroyed = 0;
+        hitFogIds.forEach((id) => {
+          const fog = snapshot.find((f) => f.id === id);
+          if (fog && !fog.cleared && (fog.dmg || 0) + 1 >= (fog.hp || 1)) destroyed += 1;
+        });
+
+        setFogs((prev) => prev.map((fog) => {
+          if (!hitFogIds.has(fog.id) || fog.cleared) return fog;
+          const dmg = (fog.dmg || 0) + 1;
+          return dmg >= (fog.hp || 1) ? { ...fog, dmg, cleared: true } : { ...fog, dmg };
         }));
-        setToast(`빛장벽 ${hitFogIds.size}개 해제!`);
-        sfx.barrier();
+
+        if (destroyed > 0) {
+          const gain = destroyed * 12;
+          setEnergy((prev) => Math.min(100, prev + gain));
+          setScore((prev) => ({
+            ...prev,
+            empathy: Math.min(100, prev.empathy + destroyed * 4),
+            community: Math.min(100, prev.community + destroyed * 5),
+          }));
+          addScorePop(`+${gain}`);
+          setToast(`빛장벽 ${destroyed}개 해제! 공동체 에너지 +${gain}`);
+          sfx.barrier();
+        } else {
+          sfx.barrier();
+        }
       }
       setProjectiles(next);
     }, 70);
@@ -959,7 +985,7 @@ function Game() {
     setSolved(save.solved || {});
     setAnswered(save.answered || {});
     setDiscovered(save.discovered || {});
-    const restoredFogs = fogSeeds.map((f) => ({ ...f, cleared: (save.cleared || []).includes(f.id) }));
+    const restoredFogs = fogSeeds.map((f) => ({ ...f, dmg: 0, cleared: (save.cleared || []).includes(f.id) }));
     setFogs(restoredFogs);
     fogsRef.current = restoredFogs;
     const restoredTreasures = treasureSeeds.map((t) => ({ ...t, found: (save.found || []).includes(t.id) }));
@@ -1026,7 +1052,7 @@ function Game() {
     setSolved({});
     setAnswered({});
     setDiscovered({});
-    const resetFogs = fogSeeds.map((fog) => ({ ...fog, cleared: false }));
+    const resetFogs = fogSeeds.map((fog) => ({ ...fog, cleared: false, dmg: 0 }));
     setFogs(resetFogs);
     fogsRef.current = resetFogs;
     const resetTreasures = treasureSeeds.map((t) => ({ ...t, found: false }));
@@ -1296,6 +1322,16 @@ function Game() {
       )}
 
       {toast && <div className="toast">{toast}</div>}
+
+      {scorePops.length > 0 && (
+        <div className="score-pops" aria-hidden="true">
+          {scorePops.map((pop) => (
+            <span key={pop.id} className={`score-pop ${pop.kind}`}>
+              <Sparkles size={15} /> {pop.text}
+            </span>
+          ))}
+        </div>
+      )}
 
       {confirmReset && (
         <section className="dialog-layer" onClick={() => setConfirmReset(false)}>

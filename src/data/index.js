@@ -22,15 +22,18 @@ export const playerPalette = ["#ffcf5a", "#38bdf8", "#8b5cf6", "#34d399", "#ff7a
 const barrierLabels = ["오해 장벽", "침묵 장벽", "불안 장벽", "소외 장벽", "무관심 장벽", "갈등 장벽", "비난 장벽", "부담 장벽"];
 
 // 8겹 링 × 18개 = 144개 빛장벽 (반지름 10~62)
+// hp: 대부분 1방(약함), 일부 2방, 소수 3방(큰 수정) — 타격감을 위한 분포
 export const fogSeeds = Array.from({ length: 144 }, (_, index) => {
   const ring = Math.floor(index / 18);
   const angle = (index % 18) * (Math.PI * 2 / 18) + ring * 0.31;
   const radius = 10 + ring * 7 + ((index * 7) % 4);
+  const hp = index % 9 === 0 ? 3 : index % 3 === 0 ? 2 : 1;
   return {
     id: `barrier-${index + 1}`,
     x: Math.round(Math.cos(angle) * radius),
     z: Math.round(Math.sin(angle) * radius),
     label: barrierLabels[index % barrierLabels.length],
+    hp,
   };
 });
 

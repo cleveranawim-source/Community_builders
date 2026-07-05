@@ -991,8 +991,10 @@ export default function GameWorld({
       const handle = createFogModel();
       handle.group.position.x = fog.x;
       handle.group.position.z = fog.z;
+      // hp가 클수록 큰 수정 (hp1=1.0, hp2=1.3, hp3=1.6)
+      const baseScale = 1 + ((fog.hp || 1) - 1) * 0.3;
       scene.add(handle.group);
-      fogRefs.current.set(fog.id, { handle, anim: 0 });
+      fogRefs.current.set(fog.id, { handle, anim: 0, baseScale, lastDmg: 0, flash: 0 });
     });
 
     treasureRefs.current.clear();
@@ -1216,25 +1218,38 @@ export default function GameWorld({
         }
       });
 
-      // 빛장벽: 깨지는 순간 떠오르며 녹아 사라진다
+      // 빛장벽: 맞으면 번쩍이며 갈라지고(hp), 깨지는 순간 떠오르며 녹아 사라진다
       fogsRef.current.forEach((fog) => {
         const entry = fogRefs.current.get(fog.id);
         if (!entry) return;
         const { group, mats } = entry.handle;
+        const base = entry.baseScale || 1;
         if (!fog.cleared) {
           if (entry.anim > 0) {
             entry.anim = 0;
-            mats[0].opacity = 0.86;
             mats[1].opacity = 0.62;
             group.position.y = 1.05;
           }
+          // 피격 감지 → 번쩍임
+          const dmg = fog.dmg || 0;
+          if (dmg > entry.lastDmg) {
+            entry.lastDmg = dmg;
+            entry.flash = 1;
+          }
+          if (entry.flash > 0) entry.flash = Math.max(0, entry.flash - dt * 4);
+          mats[0].emissiveIntensity = 0.26 + entry.flash * 1.6;
+          mats[0].opacity = 0.86;
+          // 맞을수록 작아지고(균열) 흔들림
+          const dmgRatio = (fog.hp || 1) > 0 ? dmg / (fog.hp || 1) : 0;
+          const shrink = 1 - dmgRatio * 0.26;
+          const wobble = 1 + Math.sin(t * 1.6 + fog.x) * 0.05 + entry.flash * 0.08;
           group.visible = true;
-          group.scale.setScalar(1 + Math.sin(t * 1.6 + fog.x) * 0.05);
+          group.scale.setScalar(base * shrink * wobble);
         } else if (entry.anim < 1) {
           entry.anim = Math.min(1, entry.anim + dt * 1.6);
           const k = entry.anim;
           group.visible = k < 1;
-          group.scale.setScalar(1 + k * 0.9);
+          group.scale.setScalar(base * (1 + k * 0.9));
           group.position.y = 1.05 + k * 1.4;
           group.rotation.y += dt * 2.5;
           mats[0].opacity = 0.86 * (1 - k);

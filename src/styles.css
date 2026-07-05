@@ -572,6 +572,41 @@ meter::-webkit-meter-optimum-value {
   font-weight: 700 !important;
 }
 
+/* 장벽 파괴 시 점수 상승 팝업 (화면 중앙에서 떠오름) */
+.score-pops {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  z-index: 13;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.score-pop {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  color: #0f172a;
+  background: #fde68a;
+  box-shadow: 0 6px 18px rgba(0,0,0,.28);
+  font-size: 18px;
+  font-weight: 950;
+  animation: score-pop-rise 1s ease-out forwards;
+}
+
+@keyframes score-pop-rise {
+  0% { opacity: 0; transform: translateY(6px) scale(.8); }
+  25% { opacity: 1; transform: translateY(-4px) scale(1.1); }
+  60% { opacity: 1; transform: translateY(-20px) scale(1); }
+  100% { opacity: 0; transform: translateY(-48px) scale(.95); }
+}
+
 .toast {
   position: absolute;
   left: 50%;
