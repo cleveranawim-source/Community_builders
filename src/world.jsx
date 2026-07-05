@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { quests, fogSeeds, HALF } from "./data/index.js";
+import { quests, fogSeeds, easterEggs, HALF } from "./data/index.js";
 import { clamp } from "./lib/utils.js";
 
 const MOVE_SPEED = 9.2;
@@ -827,6 +827,7 @@ export default function GameWorld({
   inputRef,
   fogsRef,
   treasuresRef,
+  foundEggsRef,
   boostUntilRef,
   runningRef,
   solved,
@@ -1020,6 +1021,27 @@ export default function GameWorld({
     });
     scene.add(clouds);
 
+    // 숨은 이스터에그: 은은한 반짝임 기둥 (자세히 보면 보이는 정도)
+    const eggMarkers = [];
+    easterEggs.forEach((egg) => {
+      const g = new THREE.Group();
+      const sparkle = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.28, 0),
+        mat(0xfff2b0, { emissive: new THREE.Color(0xffe08a), emissiveIntensity: 0.9, roughness: 0.2, transparent: true, opacity: 0.85 })
+      );
+      sparkle.position.y = 0.9;
+      const halo = new THREE.Mesh(
+        new THREE.RingGeometry(0.5, 0.62, 24),
+        new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+      );
+      halo.rotation.x = -Math.PI / 2;
+      halo.position.y = 0.06;
+      g.add(sparkle, halo);
+      g.position.set(egg.x, 0, egg.z);
+      scene.add(g);
+      eggMarkers.push({ id: egg.id, group: g, sparkle });
+    });
+
     sceneRef.current = { scene, camera, renderer };
     if (import.meta.env.DEV) globalThis.__cbRenderer = renderer;
 
@@ -1132,6 +1154,16 @@ export default function GameWorld({
       clouds.position.z = player.z * 0.7;
 
       fountainOrb.position.y = 1.68 + Math.sin(t * 2.2) * 0.08;
+
+      // 이스터에그 반짝임: 회전·부유, 발견되면 숨김
+      eggMarkers.forEach((m, i) => {
+        const found = !!foundEggsRef?.current?.[m.id];
+        m.group.visible = !found;
+        if (!found) {
+          m.sparkle.rotation.y += 0.03;
+          m.sparkle.position.y = 0.9 + Math.sin(t * 2 + i) * 0.15;
+        }
+      });
 
       // 진행도에 따라 전역 안개가 서서히 걷힌다
       const progressNow = clamp(progressRef.current || 0, 0, 1);

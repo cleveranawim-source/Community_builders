@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { createRoot } from "react-dom/client";
 import {
   BadgeCheck,
+  BookOpen,
   MapIcon,
   Menu,
   Navigation,
@@ -21,6 +22,8 @@ import {
   HERO_PORTRAIT,
   TITLE_BG,
   TITLE_BG_VIDEO,
+  easterEggs,
+  badges,
 } from "./data/index.js";
 import { uid, josa } from "./lib/utils.js";
 import { initAudio, sfx, getMuted, setMuted } from "./lib/sound.js";
@@ -528,6 +531,8 @@ function Game() {
   const [peers, setPeers] = useState({});
   const [fogs, setFogs] = useState(() => fogSeeds.map((fog) => ({ ...fog, cleared: false, dmg: 0 })));
   const [treasures, setTreasures] = useState(() => treasureSeeds.map((t) => ({ ...t, found: false })));
+  const [foundEggs, setFoundEggs] = useState({});
+  const [codexOpen, setCodexOpen] = useState(false);
   const [projectiles, setProjectiles] = useState([]);
   const [energy, setEnergy] = useState(0);
   const [toast, setToast] = useState("");
@@ -554,6 +559,7 @@ function Game() {
 
   const fogsRef = useRef(fogs);
   const treasuresRef = useRef(treasures);
+  const foundEggsRef = useRef(foundEggs);
   const projectilesRef = useRef(projectiles);
   const nearQuestRef = useRef(null);
 
@@ -563,7 +569,19 @@ function Game() {
   const onlineCount = peerList.length + 1;
   const clearedFogCount = fogs.filter((fog) => fog.cleared).length;
   const treasureCount = treasures.filter((t) => t.found).length;
+  const eggCount = Object.values(foundEggs).filter(Boolean).length;
   const endingOpen = started && completed === quests.length && !endingDismissed;
+
+  // 도감용 수집 현황 + 배지 획득 판정
+  const codexStats = {
+    solved: completed,
+    cleared: clearedFogCount,
+    fogTotal: fogs.length,
+    gems: treasureCount,
+    gemTotal: treasures.length,
+    eggs: eggCount,
+  };
+  const earnedBadges = badges.filter((b) => b.check(codexStats));
 
   runningRef.current = started && !activeQuest && !endingOpen;
 
@@ -574,6 +592,10 @@ function Game() {
   useEffect(() => {
     treasuresRef.current = treasures;
   }, [treasures]);
+
+  useEffect(() => {
+    foundEggsRef.current = foundEggs;
+  }, [foundEggs]);
 
   // 누적 카운터: 증가분만 더한다 (리셋으로 0이 되어도 누적은 유지)
   // 주의: 델타는 반드시 지역 변수로 먼저 캡처한다 — setState 업데이터 안에서
@@ -588,7 +610,7 @@ function Game() {
   }, [clearedFogCount]);
 
   if (import.meta.env.DEV) {
-    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef, fogsRef };
+    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef, fogsRef, playerHud, easterEggs, foundEggs };
   }
 
   useEffect(() => {
@@ -624,6 +646,7 @@ function Game() {
         discovered,
         cleared: fogs.filter((f) => f.cleared).map((f) => f.id),
         found: treasures.filter((t) => t.found).map((t) => t.id),
+        eggs: foundEggs,
         energy,
         score,
         endingDismissed,
@@ -640,7 +663,7 @@ function Game() {
     if (!started || !user) return undefined;
     const timer = window.setTimeout(() => saveNowRef.current(), 800);
     return () => window.clearTimeout(timer);
-  }, [started, user, profile, solved, answered, discovered, fogs, treasures, energy, score, endingDismissed, lifetimeCleared, lifetimeGems]);
+  }, [started, user, profile, solved, answered, discovered, fogs, treasures, foundEggs, energy, score, endingDismissed, lifetimeCleared, lifetimeGems]);
 
   useEffect(() => {
     if (!started || !user) return undefined;
@@ -721,6 +744,17 @@ function Game() {
       sfx.pickup();
     }
 
+    // 숨은 이스터에그 발견
+    const newEgg = easterEggs.find(
+      (egg) => !foundEggs[egg.id] && Math.hypot(egg.x - playerHud.x, egg.z - playerHud.z) < 3.5
+    );
+    if (newEgg) {
+      setFoundEggs((prev) => ({ ...prev, [newEgg.id]: true }));
+      setToast(`${newEgg.icon} ${newEgg.toast}`);
+      setEnergy((prev) => Math.min(100, prev + 10));
+      sfx.discover();
+    }
+
     let nearest = null;
     let nearestDistance = Infinity;
     quests.forEach((quest) => {
@@ -733,7 +767,7 @@ function Game() {
     const next = nearestDistance < NPC_RADIUS ? nearest : null;
     nearQuestRef.current = next;
     setNearQuest(next);
-  }, [playerHud, discovered, treasures]);
+  }, [playerHud, discovered, treasures, foundEggs]);
 
   const openQuest = useCallback((quest) => {
     setActiveQuest({ quest, view: null });
@@ -778,31 +812,32 @@ function Game() {
   useEffect(() => () => window.clearInterval(holdFireRef.current), []);
 
   // 키보드는 마운트 시 1회만 바인딩하고, 최신 상태는 ref로 읽는다.
+  // event.code(물리적 키 위치)로 판정해 한글/영문 입력 상태와 무관하게 동작한다.
   useEffect(() => {
-    const keyMap = {
-      w: "up", arrowup: "up",
-      s: "down", arrowdown: "down",
-      a: "left", arrowleft: "left",
-      d: "right", arrowright: "right",
+    const codeMap = {
+      KeyW: "up", ArrowUp: "up",
+      KeyS: "down", ArrowDown: "down",
+      KeyA: "left", ArrowLeft: "left",
+      KeyD: "right", ArrowRight: "right",
     };
     const onDown = (event) => {
       if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
-      const key = event.key.toLowerCase();
-      if (keyMap[key]) {
+      const move = codeMap[event.code];
+      if (move) {
         event.preventDefault();
-        inputRef.current.keys.add(keyMap[key]);
+        inputRef.current.keys.add(move);
       }
       if (event.code === "Space") {
         event.preventDefault();
         if (!event.repeat && runningRef.current) shootRef.current();
       }
-      if (key === "e" && !event.repeat && nearQuestRef.current && runningRef.current) {
+      if (event.code === "KeyE" && !event.repeat && nearQuestRef.current && runningRef.current) {
         openQuestRef.current(nearQuestRef.current);
       }
     };
     const onUp = (event) => {
-      const key = event.key.toLowerCase();
-      if (keyMap[key]) inputRef.current.keys.delete(keyMap[key]);
+      const move = codeMap[event.code];
+      if (move) inputRef.current.keys.delete(move);
     };
     const onBlur = () => inputRef.current.keys.clear();
     window.addEventListener("keydown", onDown);
@@ -990,6 +1025,7 @@ function Game() {
     fogsRef.current = restoredFogs;
     const restoredTreasures = treasureSeeds.map((t) => ({ ...t, found: (save.found || []).includes(t.id) }));
     setTreasures(restoredTreasures);
+    setFoundEggs(save.eggs || {});
     treasuresRef.current = restoredTreasures;
     setEnergy(save.energy || 0);
     setScore(save.score || { self: 20, empathy: 20, relation: 20, community: 20 });
@@ -1058,6 +1094,7 @@ function Game() {
     const resetTreasures = treasureSeeds.map((t) => ({ ...t, found: false }));
     setTreasures(resetTreasures);
     treasuresRef.current = resetTreasures;
+    setFoundEggs({});
     setProjectiles([]);
     projectilesRef.current = [];
     setEnergy(0);
@@ -1149,6 +1186,7 @@ function Game() {
         inputRef={inputRef}
         fogsRef={fogsRef}
         treasuresRef={treasuresRef}
+        foundEggsRef={foundEggsRef}
         boostUntilRef={boostUntilRef}
         runningRef={runningRef}
         solved={solved}
@@ -1290,15 +1328,26 @@ function Game() {
         <FireButton onStart={startFiring} onStop={stopFiring} />
       </section>
 
-      {/* 우상단: 메뉴 열기 (계속하기 · 홈으로 · 다시 시작) */}
-      <button
-        className="corner-btn menu"
-        onClick={() => setConfirmReset(true)}
-        title="메뉴"
-        aria-label="메뉴 열기"
-      >
-        <Menu size={17} />
-      </button>
+      {/* 우상단: 도감 + 메뉴 */}
+      <div className="corner-stack">
+        <button
+          className="corner-btn codex"
+          onClick={() => setCodexOpen(true)}
+          title="수집 도감"
+          aria-label="수집 도감 열기"
+        >
+          <BookOpen size={17} />
+          {earnedBadges.length > 0 && <b>{earnedBadges.length}</b>}
+        </button>
+        <button
+          className="corner-btn menu"
+          onClick={() => setConfirmReset(true)}
+          title="메뉴"
+          aria-label="메뉴 열기"
+        >
+          <Menu size={17} />
+        </button>
+      </div>
 
       {/* 미션 근접 안내 배너 */}
       {nearQuest && !activeQuest && (
@@ -1333,6 +1382,38 @@ function Game() {
         </div>
       )}
 
+      {codexOpen && (
+        <section className="dialog-layer" onClick={() => setCodexOpen(false)}>
+          <div className="codex-box" onClick={(event) => event.stopPropagation()}>
+            <div className="codex-head">
+              <h3><BookOpen size={20} /> 수집 도감</h3>
+              <button className="codex-close" onClick={() => setCodexOpen(false)} aria-label="닫기">✕</button>
+            </div>
+
+            <div className="codex-progress">
+              <div><span>미션</span><strong>{completed}/{quests.length}</strong></div>
+              <div><span>빛장벽</span><strong>{clearedFogCount}/{fogs.length}</strong></div>
+              <div><span>마음 조각</span><strong>{treasureCount}/{treasures.length}</strong></div>
+              <div><span>숨은 장소</span><strong>{eggCount}/{easterEggs.length}</strong></div>
+            </div>
+
+            <p className="codex-section-label">획득한 배지 · {earnedBadges.length}/{badges.length}</p>
+            <div className="codex-badges">
+              {badges.map((badge) => {
+                const earned = earnedBadges.some((b) => b.id === badge.id);
+                return (
+                  <div key={badge.id} className={earned ? "codex-badge earned" : "codex-badge"}>
+                    <span className="codex-badge-icon">{earned ? badge.icon : "🔒"}</span>
+                    <b>{badge.name}</b>
+                    <em>{badge.desc}</em>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
+
       {confirmReset && (
         <section className="dialog-layer" onClick={() => setConfirmReset(false)}>
           <div className="confirm-box" onClick={(event) => event.stopPropagation()}>
@@ -1359,7 +1440,7 @@ function Game() {
                 <span>{activeQuest.quest.name} | {activeQuest.quest.title}</span>
                 {dialogView === "ask" && <h2>{activeQuest.quest.problem}</h2>}
                 {dialogView === "result" && <h2>{activeQuest.choice.reward}</h2>}
-                {dialogView === "recap" && <h2>우리가 함께 해결한 미션이야. 고마워!</h2>}
+                {dialogView === "recap" && <h2>{activeQuest.quest.followup || "우리가 함께 해결한 미션이야. 고마워!"}</h2>}
               </div>
             </div>
 

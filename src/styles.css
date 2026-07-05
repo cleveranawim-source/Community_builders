@@ -378,8 +378,155 @@ meter::-webkit-meter-optimum-value {
   backdrop-filter: blur(10px);
 }
 
+.corner-stack {
+  position: absolute;
+  right: calc(18px + env(safe-area-inset-right, 0px));
+  top: 96px;
+  z-index: 6;
+  display: flex;
+  gap: 8px;
+}
+
+.corner-stack .corner-btn {
+  position: static;
+}
+
 .corner-btn:active {
   transform: scale(.92);
+}
+
+.corner-btn.codex {
+  position: relative;
+}
+
+.corner-btn.codex b {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #0f172a;
+  background: #facc15;
+  font-size: 10px;
+  font-weight: 950;
+}
+
+/* 수집 도감 */
+.codex-box {
+  width: min(460px, 100%);
+  max-height: 80vh;
+  overflow-y: auto;
+  border-radius: 24px;
+  padding: 22px;
+  background: linear-gradient(150deg, rgba(20, 32, 55, .98), rgba(9, 18, 34, .97));
+  border: 1px solid rgba(255,255,255,.2);
+  box-shadow: 0 24px 60px rgba(0,0,0,.5);
+}
+
+.codex-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.codex-head h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 19px;
+}
+
+.codex-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  color: #cbd5e1;
+  background: rgba(255,255,255,.12);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.codex-progress {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.codex-progress > div {
+  display: grid;
+  gap: 3px;
+  padding: 10px 6px;
+  border-radius: 14px;
+  text-align: center;
+  background: rgba(255,255,255,.07);
+}
+
+.codex-progress span {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.codex-progress strong {
+  font-size: 16px;
+}
+
+.codex-section-label {
+  margin: 0 0 10px;
+  color: #fde68a;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.codex-badges {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.codex-badge {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.05);
+  opacity: .5;
+  filter: grayscale(.6);
+}
+
+.codex-badge.earned {
+  opacity: 1;
+  filter: none;
+  background: rgba(250, 204, 21, .12);
+  box-shadow: inset 0 0 0 1px rgba(250, 204, 21, .3);
+}
+
+.codex-badge-icon {
+  grid-row: 1 / 3;
+  font-size: 26px;
+  text-align: center;
+}
+
+.codex-badge b {
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.codex-badge em {
+  font-style: normal;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 /* ---------- 미션 근접 안내 배너 ---------- */
