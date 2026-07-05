@@ -881,9 +881,18 @@ export default function GameWorld({
       400
     );
     camera.position.set(7.8, 8.4, 7.8);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    // 저사양·발열 완화: 코어 수가 적거나 좁은 화면이면 저사양으로 판단
+    const lowPower =
+      (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+      Math.min(window.screen?.width || 9999, window.screen?.height || 9999) <= 480;
+    const pixelCap = lowPower ? 1.1 : 1.4;
+    const renderer = new THREE.WebGLRenderer({
+      antialias: !lowPower,
+      alpha: false,
+      powerPreference: "low-power",
+    });
     renderer.setSize(mount.clientWidth, mount.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelCap));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -896,7 +905,7 @@ export default function GameWorld({
     const sun = new THREE.DirectionalLight(0xfff3df, 3.4);
     sun.position.set(8, 14, 9);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(lowPower ? 1024 : 1536, lowPower ? 1024 : 1536);
     sun.shadow.camera.left = -24;
     sun.shadow.camera.right = 24;
     sun.shadow.camera.top = 24;
@@ -1010,6 +1019,7 @@ export default function GameWorld({
     scene.add(clouds);
 
     sceneRef.current = { scene, camera, renderer };
+    if (import.meta.env.DEV) globalThis.__cbRenderer = renderer;
 
     const onResize = () => {
       if (!mount.clientWidth || !mount.clientHeight) return;
@@ -1028,6 +1038,9 @@ export default function GameWorld({
     let last = performance.now();
     let lastSync = 0;
     let lastBlockedToast = 0;
+    // 발열 완화: 120Hz(ProMotion) 태블릿에서도 최대 프레임을 제한한다
+    const FRAME_MS = lowPower ? 1000 / 30 : 1000 / 60;
+    let lastFrame = 0;
     const camTarget = new THREE.Vector3();
     const bloomM4 = new THREE.Matrix4();
     const bloomQ = new THREE.Quaternion();
@@ -1036,7 +1049,15 @@ export default function GameWorld({
 
     const animate = () => {
       raf = requestAnimationFrame(animate);
+      // 백그라운드 탭이면 렌더·연산 전부 건너뛴다
+      if (document.hidden) {
+        last = performance.now();
+        return;
+      }
       const now = performance.now();
+      // 프레임 제한 (1ms 여유로 경계 프레임 놓침 방지)
+      if (now - lastFrame < FRAME_MS - 1) return;
+      lastFrame = now;
       const dt = Math.min((now - last) / 1000, 0.05);
       last = now;
       const t = now * 0.001;
