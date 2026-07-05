@@ -562,9 +562,15 @@ function Game() {
   const foundEggsRef = useRef(foundEggs);
   const projectilesRef = useRef(projectiles);
   const nearQuestRef = useRef(null);
-  // 안개 빌런: 배회하며 깬 장벽에 안개를 되살림, 빛구슬 맞으면 진정(스턴)
-  const villainRef = useRef({ x: 34, z: 34, tx: 34, tz: 34, stunUntil: 0, active: true });
+  // 안개 빌런 3마리: 배회하며 깬 장벽에 안개를 되살림, 빛구슬 맞으면 진정(스턴)
+  const makeVillains = () => [
+    { x: 40, z: 40, tx: 40, tz: 40, stunUntil: 0, active: true },
+    { x: -40, z: 40, tx: -40, tz: 40, stunUntil: 0, active: true },
+    { x: 40, z: -40, tx: 40, tz: -40, stunUntil: 0, active: true },
+  ];
+  const villainsRef = useRef(makeVillains());
   const worldProgressRef = useRef(0);
+  const lastVillainToastRef = useRef(0);
 
   const completed = Object.values(solved).filter(Boolean).length;
   const discoveredCount = Object.values(discovered).filter(Boolean).length;
@@ -613,7 +619,7 @@ function Game() {
   }, [clearedFogCount]);
 
   if (import.meta.env.DEV) {
-    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef, fogsRef, playerHud, easterEggs, foundEggs, villainRef, worldProgressRef };
+    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef, fogsRef, playerHud, easterEggs, foundEggs, villainsRef, worldProgressRef };
   }
 
   useEffect(() => {
@@ -862,7 +868,8 @@ function Game() {
       const next = [];
       const hitFogIds = new Set();
       let villainHitNow = false;
-      const villain = villainRef.current;
+      const villains = villainsRef.current;
+      const nowMs = Date.now();
 
       current.forEach((projectile) => {
         const moved = {
@@ -872,8 +879,11 @@ function Game() {
           life: projectile.life - 1,
         };
         // 빌런 명중 → 진정(스턴)
-        if (villain.active && villain.stunUntil < Date.now() &&
-            Math.hypot(villain.x - moved.x, villain.z - moved.z) < 1.7) {
+        const hitVillain = villains.find(
+          (v) => v.active && v.stunUntil < nowMs && Math.hypot(v.x - moved.x, v.z - moved.z) < 1.7
+        );
+        if (hitVillain) {
+          hitVillain.stunUntil = nowMs + 5000;
           villainHitNow = true;
           return;
         }
@@ -888,7 +898,6 @@ function Game() {
       });
 
       if (villainHitNow) {
-        villain.stunUntil = Date.now() + 5000;
         setToast("💛 안개 빌런을 진정시켰어요! 잠시 안개를 멈춰요.");
         sfx.solve();
       }
@@ -928,28 +937,41 @@ function Game() {
     return () => window.clearInterval(interval);
   }, []);
 
-  // 안개 빌런: 주기적으로 근처 깬 장벽에 안개를 되살린다 (스턴 아닐 때만).
-  // 반 밝기가 높으면 약해져 사라진다 — 노력하면 이긴다는 감각을 준다.
+  // 안개 빌런 3마리: 주기적으로 각자 근처 깬 장벽에 안개를 되살린다 (스턴 아닐 때만).
+  // 마을이 밝아질수록 한 마리씩 사라진다 — 노력하면 이긴다는 감각.
   useEffect(() => {
     if (!started) return undefined;
     const iv = window.setInterval(() => {
-      const v = villainRef.current;
-      if (!v.active) return;
-      // 마을이 충분히 밝아지면 빌런이 사라진다
-      if (worldProgressRef.current >= 0.85) {
-        v.active = false;
-        setToast("🌈 마을이 밝아지자 안개 빌런이 스르르 사라졌어요!");
-        return;
+      const now = Date.now();
+      const prog = worldProgressRef.current;
+      // 진행도에 따라 활동하는 빌런 수를 줄인다 (0.55→2마리, 0.75→1마리, 0.9→0마리)
+      const allowedActive = prog >= 0.9 ? 0 : prog >= 0.75 ? 1 : prog >= 0.55 ? 2 : 3;
+      const villains = villainsRef.current;
+      let activeCount = villains.filter((v) => v.active).length;
+      villains.forEach((v) => {
+        if (v.active && activeCount > allowedActive) {
+          v.active = false;
+          activeCount -= 1;
+          setToast("🌈 마을이 밝아지자 안개 빌런 하나가 스르르 사라졌어요!");
+        }
+      });
+
+      const revivedIds = [];
+      villains.forEach((v) => {
+        if (!v.active || v.stunUntil > now) return;
+        const target = fogsRef.current.find(
+          (f) => f.cleared && !revivedIds.includes(f.id) && Math.hypot(f.x - v.x, f.z - v.z) < 11
+        );
+        if (target) revivedIds.push(target.id);
+      });
+      if (revivedIds.length) {
+        setFogs((prev) => prev.map((f) => (revivedIds.includes(f.id) ? { ...f, cleared: false, dmg: 0 } : f)));
+        if (now - lastVillainToastRef.current > 4000) {
+          lastVillainToastRef.current = now;
+          setToast(`😈 안개 빌런이 안개를 ${revivedIds.length}곳에 다시 퍼뜨렸어요! 빛구슬로 막아요.`);
+        }
       }
-      if (v.stunUntil > Date.now()) return; // 진정 중엔 안개 못 퍼뜨림
-      const revived = fogsRef.current.find(
-        (f) => f.cleared && Math.hypot(f.x - v.x, f.z - v.z) < 9
-      );
-      if (revived) {
-        setFogs((prev) => prev.map((f) => (f.id === revived.id ? { ...f, cleared: false, dmg: 0 } : f)));
-        setToast("😈 안개 빌런이 안개를 다시 퍼뜨렸어요! 공감 빛구슬로 막아요.");
-      }
-    }, 3800);
+    }, 2600);
     return () => window.clearInterval(iv);
   }, [started]);
 
@@ -1137,7 +1159,7 @@ function Game() {
     setTreasures(resetTreasures);
     treasuresRef.current = resetTreasures;
     setFoundEggs({});
-    villainRef.current = { x: 34, z: 34, tx: 34, tz: 34, stunUntil: 0, active: true };
+    villainsRef.current = makeVillains();
     setProjectiles([]);
     projectilesRef.current = [];
     setEnergy(0);
@@ -1231,7 +1253,7 @@ function Game() {
         fogsRef={fogsRef}
         treasuresRef={treasuresRef}
         foundEggsRef={foundEggsRef}
-        villainRef={villainRef}
+        villainsRef={villainsRef}
         boostUntilRef={boostUntilRef}
         runningRef={runningRef}
         solved={solved}
@@ -1290,9 +1312,18 @@ function Game() {
             💛 {treasureCount}/{treasureSeeds.length}
           </div>
           {profile?.room && <div className="room-chip small">반 {profile.room}</div>}
-          <button className="mute-chip" onClick={toggleMuted} title={muted ? "소리 켜기" : "소리 끄기"}>
-            {muted ? "🔇" : "🔊"}
-          </button>
+          <div className="sys-buttons">
+            <button className="icon-chip" onClick={toggleMuted} title={muted ? "소리 켜기" : "소리 끄기"} aria-label={muted ? "소리 켜기" : "소리 끄기"}>
+              {muted ? "🔇" : "🔊"}
+            </button>
+            <button className="icon-chip codex-chip" onClick={() => setCodexOpen(true)} title="수집 도감" aria-label="수집 도감 열기">
+              <BookOpen size={15} />
+              {earnedBadges.length > 0 && <b>{earnedBadges.length}</b>}
+            </button>
+            <button className="icon-chip" onClick={() => setConfirmReset(true)} title="메뉴" aria-label="메뉴 열기">
+              <Menu size={15} />
+            </button>
+          </div>
         </div>
         {classBrightness && (
           <div
@@ -1372,27 +1403,6 @@ function Game() {
         </button>
         <FireButton onStart={startFiring} onStop={stopFiring} />
       </section>
-
-      {/* 우상단: 도감 + 메뉴 */}
-      <div className="corner-stack">
-        <button
-          className="corner-btn codex"
-          onClick={() => setCodexOpen(true)}
-          title="수집 도감"
-          aria-label="수집 도감 열기"
-        >
-          <BookOpen size={17} />
-          {earnedBadges.length > 0 && <b>{earnedBadges.length}</b>}
-        </button>
-        <button
-          className="corner-btn menu"
-          onClick={() => setConfirmReset(true)}
-          title="메뉴"
-          aria-label="메뉴 열기"
-        >
-          <Menu size={17} />
-        </button>
-      </div>
 
       {/* 미션 근접 안내 배너 */}
       {nearQuest && !activeQuest && (

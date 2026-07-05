@@ -1392,11 +1392,44 @@ meter::-webkit-meter-optimum-value {
   to { filter: brightness(1.18); }
 }
 
-.mute-chip {
+.sys-buttons {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.icon-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 28px;
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 0 8px;
+  color: #e2e8f0;
   background: rgba(255, 255, 255, .14);
   font-size: 13px;
+}
+
+.icon-chip:active {
+  transform: scale(.92);
+}
+
+.icon-chip.codex-chip b {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #0f172a;
+  background: #facc15;
+  font-size: 9px;
+  font-weight: 950;
 }
 
 .intro-help {

@@ -864,7 +864,7 @@ export default function GameWorld({
   fogsRef,
   treasuresRef,
   foundEggsRef,
-  villainRef,
+  villainsRef,
   boostUntilRef,
   runningRef,
   solved,
@@ -1079,10 +1079,13 @@ export default function GameWorld({
       eggMarkers.push({ id: egg.id, group: g, sparkle });
     });
 
-    // 안개 빌런 모델
-    const villain = createVillainModel();
-    villain.group.position.set(34, 1.4, 34);
-    scene.add(villain.group);
+    // 안개 빌런 모델 (최대 3마리)
+    const villainModels = (villainsRef?.current || []).map((v) => {
+      const vm = createVillainModel();
+      vm.group.position.set(v.x, 1.4, v.z);
+      scene.add(vm.group);
+      return vm;
+    });
 
     sceneRef.current = { scene, camera, renderer };
     if (import.meta.env.DEV) globalThis.__cbRenderer = renderer;
@@ -1207,36 +1210,35 @@ export default function GameWorld({
         }
       });
 
-      // 안개 빌런: 배회 이동, 진정(스턴) 시 밝아지고 멈춤
-      const v = villainRef?.current;
-      if (v && v.active) {
-        villain.group.visible = true;
-        const isStunned = v.stunUntil > Date.now();
-        // 목표 도달하면 새 목표: 가까운 깬 장벽 또는 랜덤 지점
+      // 안개 빌런 3마리: 배회 이동, 진정(스턴) 시 밝아지고 멈춤
+      const villainList = villainsRef?.current || [];
+      const villainNow = Date.now();
+      villainModels.forEach((vm, vi) => {
+        const v = villainList[vi];
+        if (!v || !v.active) { vm.group.visible = false; return; }
+        vm.group.visible = true;
+        const isStunned = v.stunUntil > villainNow;
         if (Math.hypot(v.x - v.tx, v.z - v.tz) < 2) {
           const revive = fogsRef.current.find(
-            (f) => f.cleared && Math.hypot(f.x - v.x, f.z - v.z) < 34 && Math.random() < 0.4
+            (f) => f.cleared && Math.hypot(f.x - v.x, f.z - v.z) < 38 && Math.random() < 0.5
           );
           if (revive) { v.tx = revive.x; v.tz = revive.z; }
-          else { v.tx = (Math.random() * 2 - 1) * 44; v.tz = (Math.random() * 2 - 1) * 44; }
+          else { v.tx = (Math.random() * 2 - 1) * 46; v.tz = (Math.random() * 2 - 1) * 46; }
         }
         const prog = progressRef.current || 0;
-        const speed = isStunned ? 0 : 3.2 * (1 - prog * 0.5);
+        const speed = isStunned ? 0 : 3.4 * (1 - prog * 0.4);
         const dx = v.tx - v.x, dz = v.tz - v.z;
         const dd = Math.hypot(dx, dz);
         if (dd > 0.1 && !isStunned) {
           v.x += (dx / dd) * speed * dt;
           v.z += (dz / dd) * speed * dt;
         }
-        villain.group.position.set(v.x, 1.4 + Math.sin(t * 2) * 0.16, v.z);
-        villain.group.rotation.y = Math.atan2(dx, dz) + Math.PI;
-        villain.ring.rotation.z += dt * (isStunned ? 0.4 : 2.2);
-        // 스턴 시 밝게(진정), 아니면 어둡게
-        villain.bodyMat.emissiveIntensity = isStunned ? 1.3 : 0.4;
-        villain.bodyMat.color.setHex(isStunned ? 0xc9b8f0 : 0x5a4a7a);
-      } else if (v) {
-        villain.group.visible = false;
-      }
+        vm.group.position.set(v.x, 1.4 + Math.sin(t * 2 + vi) * 0.16, v.z);
+        vm.group.rotation.y = Math.atan2(dx, dz) + Math.PI;
+        vm.ring.rotation.z += dt * (isStunned ? 0.4 : 2.2);
+        vm.bodyMat.emissiveIntensity = isStunned ? 1.3 : 0.4;
+        vm.bodyMat.color.setHex(isStunned ? 0xc9b8f0 : 0x5a4a7a);
+      });
 
       // 진행도에 따라 전역 안개가 서서히 걷힌다
       const progressNow = clamp(progressRef.current || 0, 0, 1);
