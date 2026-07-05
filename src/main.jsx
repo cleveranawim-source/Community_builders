@@ -253,6 +253,9 @@ function IntroScreen({ onStart, onContinue, savedGame }) {
         </p>
         <a className="teacher-link" href="#teacher">교사용 화면 열기 →</a>
       </div>
+      <div className="intro-brand" aria-label="제작 LevLab YEOL">
+        <b>Lev</b>Lab <span>YEOL</span>
+      </div>
     </section>
   );
 }
