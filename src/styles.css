@@ -10,11 +10,14 @@
   box-sizing: border-box;
 }
 
-body {
+html, body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  height: 100%;
   overflow: hidden;
+  position: fixed;
+  inset: 0;
+  overscroll-behavior: none;
 }
 
 button {
@@ -26,7 +29,8 @@ button {
 .game-shell {
   position: relative;
   width: 100vw;
-  height: 100vh;
+  /* JS가 --app-height를 visualViewport 기준으로 갱신한다 (iOS 주소창 하단 잘림 방지) */
+  height: var(--app-height, 100dvh);
   overflow: hidden;
   background: #07111f;
 }
@@ -277,127 +281,277 @@ meter::-webkit-meter-optimum-value {
   background: linear-gradient(90deg, #60a5fa, #34d399);
 }
 
-.bottom-left {
-  left: 18px;
-  bottom: 18px;
-  width: 260px;
-  border-radius: 24px;
-  padding: 14px;
+/* ---------- 좌우 분리 컨트롤 (양손 플레이) ---------- */
+
+.pad-left,
+.pad-right {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
 }
 
-.control-title {
+.pad-left {
+  left: calc(20px + env(safe-area-inset-left, 0px));
+}
+
+.pad-right {
+  right: calc(20px + env(safe-area-inset-right, 0px));
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.pad-hint {
+  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 900;
+  text-shadow: 0 2px 6px rgba(0,0,0,.5);
+}
+
+.shoot-fab {
+  width: 96px;
+  height: 96px;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  border-radius: 50%;
+  color: #0f3d2e;
+  background: radial-gradient(circle at 50% 38%, #b6f7d6, #4ade80);
+  box-shadow: 0 10px 26px rgba(0,0,0,.34), inset 0 -5px 0 rgba(0,0,0,.16);
+  font-weight: 950;
+}
+
+.shoot-fab em {
+  font-style: normal;
+  font-size: 12px;
+}
+
+.shoot-fab:active {
+  transform: scale(.94);
+  filter: brightness(1.08);
+}
+
+.boost-fab {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  color: #2e1065;
+  background: radial-gradient(circle at 50% 38%, #ddd0ff, #a78bfa);
+  box-shadow: 0 8px 20px rgba(0,0,0,.3), inset 0 -4px 0 rgba(0,0,0,.16);
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.boost-fab:disabled {
+  opacity: .4;
+  filter: grayscale(.5);
+}
+
+.boost-fab.active {
+  background: radial-gradient(circle at 50% 38%, #fde68a, #c4b5fd);
+  animation: boost-pulse .6s ease-in-out infinite alternate;
+}
+
+.restart-mini {
+  position: absolute;
+  right: calc(18px + env(safe-area-inset-right, 0px));
+  top: 96px;
+  z-index: 6;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: #e2e8f0;
+  border: 1px solid rgba(255,255,255,.22);
+  background: rgba(8, 15, 28, .5);
+  backdrop-filter: blur(10px);
+}
+
+.restart-mini:active {
+  transform: scale(.92);
+}
+
+/* ---------- 미션 근접 안내 배너 ---------- */
+
+.quest-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+  z-index: 12;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.controls {
-  display: grid;
-  grid-template-columns: repeat(3, 54px);
-  grid-template-rows: repeat(2, 48px);
-  gap: 8px;
-  justify-content: center;
-}
-
-.controls button {
-  border-radius: 14px;
+  gap: 12px;
+  max-width: min(440px, calc(100vw - 220px));
+  padding: 10px 16px 10px 12px;
+  border-radius: 999px;
+  border: 2px solid var(--quest-color, #facc15);
   color: #f8fafc;
-  background: rgba(255, 255, 255, .14);
-  box-shadow: inset 0 -3px 0 rgba(0,0,0,.24);
-  font-size: 22px;
-  font-weight: 950;
+  background: rgba(8, 15, 28, .82);
+  box-shadow: 0 12px 34px rgba(0,0,0,.4), 0 0 0 6px color-mix(in srgb, var(--quest-color, #facc15) 24%, transparent);
+  backdrop-filter: blur(14px);
+  animation: quest-rise .3s ease, quest-glow 1.4s ease-in-out infinite alternate;
 }
 
-.controls button:first-child {
-  grid-column: 2;
+@keyframes quest-rise {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
 }
 
-.controls button:nth-child(2) {
-  grid-column: 1;
+@keyframes quest-glow {
+  from { box-shadow: 0 12px 34px rgba(0,0,0,.4), 0 0 0 3px color-mix(in srgb, var(--quest-color, #facc15) 20%, transparent); }
+  to { box-shadow: 0 12px 34px rgba(0,0,0,.4), 0 0 0 9px color-mix(in srgb, var(--quest-color, #facc15) 8%, transparent); }
 }
 
-.controls button:nth-child(3) {
-  grid-column: 2;
+.quest-prompt.solved {
+  animation: quest-rise .3s ease;
+  border-color: rgba(134, 239, 172, .6);
+  box-shadow: 0 12px 34px rgba(0,0,0,.4);
 }
 
-.controls button:nth-child(4) {
-  grid-column: 3;
-}
-
-.reset,
-.shoot-button {
-  width: 100%;
-  min-height: 42px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 12px;
-  border-radius: 14px;
-  color: #0f172a;
-  background: #facc15;
-  font-weight: 950;
-}
-
-.shoot-button {
-  margin-top: 8px;
-  color: #0f172a;
-  background: #86efac;
-}
-
-.bottom-right {
-  right: 18px;
-  bottom: 18px;
-  width: min(410px, calc(100vw - 36px));
-  border-radius: 24px;
-  padding: 14px;
-}
-
-.near-card {
+.quest-prompt-badge {
+  flex: none;
+  width: 26px;
+  height: 26px;
   display: grid;
-  grid-template-columns: 86px 1fr;
-  gap: 14px;
-  align-items: center;
+  place-items: center;
+  border-radius: 50%;
+  color: #0f172a;
+  background: var(--quest-color, #facc15);
+  font-size: 16px;
+  font-weight: 950;
+  animation: badge-bounce .8s ease-in-out infinite;
 }
 
-.near-card strong {
-  display: block;
+.quest-prompt.solved .quest-prompt-badge {
+  background: #86efac;
+  animation: none;
+}
+
+@keyframes badge-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+.quest-prompt-avatar {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 2px solid;
+}
+
+.quest-prompt-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+
+.quest-prompt-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-align: left;
+}
+
+.quest-prompt-text b {
+  font-size: 12px;
+  color: var(--quest-color, #facc15);
+}
+
+.quest-prompt.solved .quest-prompt-text b {
+  color: #86efac;
+}
+
+.quest-prompt-text em {
+  font-style: normal;
+  font-size: 14px;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quest-prompt-cta {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 10px;
+  margin-left: 4px;
+  border-left: 1px solid rgba(255,255,255,.2);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.quest-prompt-key {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 6px;
+  color: #0f172a;
+  background: #e2e8f0;
+  font-size: 11px;
+}
+
+/* ---------- 다시 시작 확인 모달 ---------- */
+
+.confirm-box {
+  width: min(360px, 100%);
+  border-radius: 24px;
+  padding: 26px 24px 20px;
+  text-align: center;
+  background: linear-gradient(150deg, rgba(20, 32, 55, .97), rgba(9, 18, 34, .96));
+  border: 1px solid rgba(255,255,255,.2);
+  box-shadow: 0 24px 60px rgba(0,0,0,.5);
+}
+
+.confirm-box h3 {
+  margin: 0;
   font-size: 20px;
 }
 
-.near-card span {
-  display: block;
-  margin-top: 4px;
-  line-height: 1.35;
+.confirm-box p {
+  margin: 10px 0 0;
+  color: #cbd5e1;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
   word-break: keep-all;
 }
 
-.near-avatar {
-  width: 86px;
-  height: 86px;
-  display: grid;
-  place-items: center;
-  border-radius: 22px;
-  border: 2px solid rgba(255,255,255,.34);
-  box-shadow: inset 0 0 0 4px rgba(255,255,255,.16), 0 18px 38px rgba(0,0,0,.28);
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
 }
 
-.near-avatar span {
-  margin: 0;
-  color: #fff;
-  font-size: 32px;
-  font-weight: 950;
-}
-
-.near-card button {
-  min-height: 42px;
-  margin-top: 12px;
+.confirm-actions button {
+  flex: 1;
+  min-height: 46px;
   border-radius: 14px;
-  padding: 0 16px;
-  color: #0f172a;
-  background: #86efac;
   font-weight: 950;
+}
+
+.confirm-actions .ghost {
+  color: #e2e8f0;
+  background: rgba(255,255,255,.14);
+}
+
+.confirm-actions .danger {
+  color: #fff;
+  background: #ef4444;
 }
 
 .toast {
@@ -512,22 +666,11 @@ meter::-webkit-meter-optimum-value {
 }
 
 .choice-grid button:hover,
-.controls button:hover,
-.near-card button:hover,
-.reset:hover {
+.near-card button:hover {
   filter: brightness(1.06);
 }
 
 @media (max-width: 860px) {
-  body {
-    overflow: auto;
-  }
-
-  .game-shell {
-    min-height: 100vh;
-    height: 100dvh;
-  }
-
   .top-left {
     top: 10px;
     left: 10px;
@@ -537,8 +680,8 @@ meter::-webkit-meter-optimum-value {
   .top-right {
     top: auto;
     right: 10px;
-    bottom: 180px;
-    width: min(260px, calc(100vw - 20px));
+    bottom: 168px;
+    width: min(240px, calc(100vw - 20px));
     padding: 10px;
   }
 
@@ -550,51 +693,9 @@ meter::-webkit-meter-optimum-value {
     grid-template-columns: 18px 64px 1fr;
   }
 
-  .bottom-left {
-    left: 10px;
-    bottom: 10px;
-    width: 218px;
-    padding: 10px;
-  }
-
-  .controls {
-    grid-template-columns: repeat(3, 46px);
-    grid-template-rows: repeat(2, 42px);
-  }
-
-  .bottom-right {
-    right: 10px;
-    bottom: 10px;
-    width: calc(100vw - 248px);
-    min-width: 132px;
-    padding: 10px;
-  }
-
-  .near-card {
-    grid-template-columns: 58px 1fr;
-  }
-
   .toast {
-    bottom: 116px;
+    bottom: 132px;
     border-radius: 18px;
-    font-size: 12px;
-  }
-
-  .near-avatar {
-    width: 58px;
-    height: 58px;
-    border-radius: 16px;
-  }
-
-  .near-avatar span {
-    font-size: 22px;
-  }
-
-  .near-card strong {
-    font-size: 16px;
-  }
-
-  .near-card span {
     font-size: 12px;
   }
 
@@ -764,12 +865,13 @@ meter::-webkit-meter-optimum-value {
 
 .joystick {
   position: relative;
-  width: 128px;
-  height: 128px;
+  width: 132px;
+  height: 132px;
   margin: 0 auto;
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 42%, rgba(255,255,255,.2), rgba(255,255,255,.07));
-  box-shadow: inset 0 0 0 2px rgba(255,255,255,.25);
+  background: radial-gradient(circle at 50% 42%, rgba(15,23,42,.5), rgba(15,23,42,.34));
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.28), 0 10px 26px rgba(0,0,0,.34);
+  backdrop-filter: blur(8px);
   touch-action: none;
 }
 
@@ -1265,25 +1367,31 @@ meter::-webkit-meter-optimum-value {
 
 @media (max-width: 860px) {
   .joystick {
-    width: 112px;
-    height: 112px;
+    width: 120px;
+    height: 120px;
   }
 
-  .bottom-left {
-    width: 176px;
+  .shoot-fab {
+    width: 88px;
+    height: 88px;
   }
 
-  .bottom-right {
-    left: 196px;
-    right: 10px;
-    width: auto;
-    min-width: 0;
+  .boost-fab {
+    width: 56px;
+    height: 56px;
+    font-size: 18px;
   }
 
   .guide-arrow {
     top: auto;
-    bottom: 246px;
+    bottom: calc(150px + env(safe-area-inset-bottom, 0px));
     font-size: 12px;
+  }
+
+  /* 컨트롤과 겹치지 않도록 미션 배너를 컨트롤 위로 */
+  .quest-prompt {
+    bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+    max-width: calc(100vw - 40px);
   }
 
   .teacher-row {

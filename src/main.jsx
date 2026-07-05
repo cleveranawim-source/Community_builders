@@ -2,8 +2,6 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { createRoot } from "react-dom/client";
 import {
   BadgeCheck,
-  Compass,
-  Gamepad2,
   MapIcon,
   Navigation,
   PartyPopper,
@@ -451,6 +449,7 @@ function Game() {
   const boostUntilRef = useRef(0);
   const [boostLeft, setBoostLeft] = useState(0);
   const [muted, setMutedState] = useState(getMuted);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const fogsRef = useRef(fogs);
   const treasuresRef = useRef(treasures);
@@ -557,6 +556,27 @@ function Game() {
     const timeout = window.setTimeout(() => setToast(""), 2600);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  // iOS Safari 주소창으로 100vh가 화면보다 커져 하단이 잘리는 문제 방지:
+  // 실제 보이는 높이(visualViewport)를 --app-height로 반영한다
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const apply = () => {
+      const h = vv ? vv.height : window.innerHeight;
+      document.documentElement.style.setProperty("--app-height", `${h}px`);
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    window.addEventListener("orientationchange", apply);
+    vv?.addEventListener("resize", apply);
+    vv?.addEventListener("scroll", apply);
+    return () => {
+      window.removeEventListener("resize", apply);
+      window.removeEventListener("orientationchange", apply);
+      vv?.removeEventListener("resize", apply);
+      vv?.removeEventListener("scroll", apply);
+    };
+  }, []);
 
   // 월드 rAF 루프에서 140ms마다 호출되는 위치 동기화 (변화 없으면 리렌더 생략)
   const handleSync = useCallback((snapshot) => {
@@ -909,6 +929,7 @@ function Game() {
     setEndingDismissed(false);
     setToast("공동체 월드가 다시 시작되었습니다.");
     setActiveQuest(null);
+    setConfirmReset(false);
   };
 
   // 가장 가까운 미해결 거점으로 향하는 화면 기준 안내 각도
@@ -1105,57 +1126,77 @@ function Game() {
         </div>
       )}
 
-      <section className="hud bottom-left">
-        <div className="control-title">
-          <Gamepad2 size={18} />
-          <span>이동</span>
-        </div>
+      {/* 왼손: 이동 조이스틱 */}
+      <section className="hud pad-left">
         <Joystick inputRef={inputRef} />
-        <button className="shoot-button" onClick={() => runningRef.current && shoot()}>
-          <Sparkles size={16} /> 공감 빛구슬
-        </button>
+        <span className="pad-hint">이동</span>
+      </section>
+
+      {/* 오른손: 빛구슬 발사 + 부스트 */}
+      <section className="hud pad-right">
         <button
-          className={boostActive ? "boost-button active" : "boost-button"}
+          className={boostActive ? "boost-fab active" : "boost-fab"}
           onClick={boost}
           disabled={!boostActive && energy < 60}
+          title={boostActive ? `부스트 ${boostLeft}초` : "반짝 부스트 (에너지 60)"}
         >
-          ⚡ {boostActive ? `부스트 ${boostLeft}초!` : "반짝 부스트 (에너지 60)"}
+          ⚡{boostActive ? boostLeft : ""}
         </button>
-        <button className="reset" onClick={reset}><RotateCcw size={16} /> 다시 시작</button>
+        <button
+          className="shoot-fab"
+          onClick={() => runningRef.current && shoot()}
+          aria-label="공감 빛구슬 발사"
+        >
+          <Sparkles size={30} />
+          <em>빛구슬</em>
+        </button>
       </section>
 
-      <section className="hud bottom-right">
-        <div className="near-card">
-          {nearQuest ? (
-            <>
-              <div className="near-avatar" style={{ borderColor: nearQuest.color }}>
-                <img src={portraitOf(nearQuest.id)} alt={nearQuest.name} />
-              </div>
-              <div>
-                <strong>{nearQuest.title}</strong>
-                <span>
-                  {solved[nearQuest.id]
-                    ? `${nearQuest.name}의 미션을 이미 해결했습니다.`
-                    : `${nearQuest.name}${josa(nearQuest.name, "과", "와")} 공동체 미션을 시작할 수 있습니다.`}
-                </span>
-                <button onClick={() => openQuest(nearQuest)}>
-                  {solved[nearQuest.id] ? "다시 이야기하기" : "함께 해결하기 (E)"}
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <Compass size={18} />
-              <div>
-                <strong>넓은 공동체 월드</strong>
-                <span>장벽 {clearedFogCount}/{fogs.length} 해제 · 미션 {completed}/{quests.length} 해결</span>
-              </div>
-            </>
-          )}
-        </div>
-      </section>
+      {/* 다시 시작: 작은 아이콘 버튼 (확인 후 실행) */}
+      <button
+        className="restart-mini"
+        onClick={() => setConfirmReset(true)}
+        title="처음부터 다시 시작"
+        aria-label="처음부터 다시 시작"
+      >
+        <RotateCcw size={16} />
+      </button>
+
+      {/* 미션 근접 안내 배너 */}
+      {nearQuest && !activeQuest && (
+        <button
+          className={solved[nearQuest.id] ? "quest-prompt solved" : "quest-prompt"}
+          onClick={() => openQuest(nearQuest)}
+          style={{ "--quest-color": nearQuest.color }}
+        >
+          <span className="quest-prompt-badge">{solved[nearQuest.id] ? "✓" : "!"}</span>
+          <span className="quest-prompt-avatar" style={{ borderColor: nearQuest.color }}>
+            <img src={portraitOf(nearQuest.id)} alt={nearQuest.name} />
+          </span>
+          <span className="quest-prompt-text">
+            <b>{solved[nearQuest.id] ? "해결한 미션" : "새 미션 발견!"}</b>
+            <em>{nearQuest.title} · {nearQuest.name}</em>
+          </span>
+          <span className="quest-prompt-cta">
+            {solved[nearQuest.id] ? "다시 보기" : "함께 해결"} <span className="quest-prompt-key">E</span>
+          </span>
+        </button>
+      )}
 
       {toast && <div className="toast">{toast}</div>}
+
+      {confirmReset && (
+        <section className="dialog-layer" onClick={() => setConfirmReset(false)}>
+          <div className="confirm-box" onClick={(event) => event.stopPropagation()}>
+            <h3>처음부터 다시 시작할까요?</h3>
+            <p>지금까지 해결한 미션과 모은 마음 조각이 모두 사라집니다.</p>
+            <div className="confirm-actions">
+              <button className="ghost" onClick={() => setConfirmReset(false)}>계속하기</button>
+              <button className="danger" onClick={reset}>다시 시작</button>
+            </div>
+          </div>
+        </section>
+      )}
 
       {activeQuest && (
         <section className="dialog-layer" onClick={() => dialogView !== "ask" && setActiveQuest(null)}>
@@ -1240,7 +1281,7 @@ function Game() {
                 인증서 저장
               </button>
               <button onClick={() => setEndingDismissed(true)}>계속 탐험</button>
-              <button onClick={reset}>다시 시작</button>
+              <button onClick={() => setConfirmReset(true)}>다시 시작</button>
             </div>
           </div>
         </section>
