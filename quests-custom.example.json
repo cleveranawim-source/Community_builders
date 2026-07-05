@@ -1,0 +1,23 @@
+{
+  "_사용법": "이 파일을 같은 폴더에 'quests-custom.json'이라는 이름으로 복사하면, 빌드 없이 문항 텍스트가 게임에 반영됩니다. id가 일치하는 문항의 텍스트 필드(name, title, problem, choices의 text/reward/good, insight)만 덮어씁니다. 바꾸고 싶은 문항만 넣으면 되고, 나머지는 기본 문항이 사용됩니다. 전체 문항 id 목록: nari, leo, sori, moru, signal, welcome, promise, listen, repair, bridge2, rest, share, vote, celebrate, safechat, mentor",
+  "quests": [
+    {
+      "id": "nari",
+      "title": "마음광장 복구",
+      "problem": "(예시) 우리 반 아침 시간이 조용하기만 해. 서로의 오늘 기분을 모르면 하루가 겉돌게 된대.",
+      "choices": [
+        {
+          "text": "(예시) 아침 조회 때 오늘의 기분을 색깔 카드로 하나씩 골라 붙인다.",
+          "good": true,
+          "reward": "(예시) 마음광장에 우리 반 아침 불빛이 켜졌습니다."
+        },
+        {
+          "text": "(예시) 어색하니까 그냥 각자 조용히 있는다.",
+          "good": false,
+          "reward": "(예시) 조용하긴 하지만 광장 한쪽은 아직 어둡습니다."
+        }
+      ],
+      "insight": "(예시) 감정에 이름을 붙여 나누는 순간, 서로의 상태를 추측하지 않아도 됩니다."
+    }
+  ]
+}
