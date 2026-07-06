@@ -73,6 +73,46 @@ export const lostItems = [
     owner: "celebrate", ownerName: "도윤",
     thanks: "제 도시락이에요! 점심시간에 못 찾아서 배곯을 뻔했는데. 챙겨줘서 고마워요 — 이따 같이 나눠 먹을래요?",
   },
+  {
+    id: "lost-umbrella",
+    icon: "☂️",
+    name: "잃어버린 우산",
+    x: 12, z: -20,
+    owner: "leo", ownerName: "레오",
+    thanks: "제 우산이에요! 갑자기 비가 쏟아졌을 때 잃어버려서 쫄딱 젖었거든요. 이렇게 챙겨줘서 고마워요.",
+  },
+  {
+    id: "lost-book",
+    icon: "📕",
+    name: "떨어뜨린 도서관 책",
+    x: 18, z: 28,
+    owner: "moru", ownerName: "모루",
+    thanks: "도서관에서 빌린 책인데 잃어버려서 변상해야 하나 밤새 걱정했어요. 정말 고마워요!",
+  },
+  {
+    id: "lost-key",
+    icon: "🔑",
+    name: "떨어진 집 열쇠",
+    x: -28, z: -6,
+    owner: "signal", ownerName: "하루",
+    thanks: "집 열쇠예요! 이거 없으면 집에 못 들어가서 발만 동동 굴렀는데… 찾아줘서 살았어요. 고마워요.",
+  },
+  {
+    id: "lost-glove",
+    icon: "🧤",
+    name: "한 짝 남은 장갑",
+    x: -6, z: -30,
+    owner: "promise", ownerName: "준",
+    thanks: "짝 잃은 장갑이었는데! 한 짝만 남아서 서랍에 넣어뒀거든요. 다시 두 짝이 됐네요, 고마워요.",
+  },
+  {
+    id: "lost-cap",
+    icon: "🧢",
+    name: "바람에 날아간 모자",
+    x: -26, z: 30,
+    owner: "sori", ownerName: "소리",
+    thanks: "제 모자예요! 바람에 휙 날아가서 한참 찾아 헤맸는데. 챙겨줘서 정말 고마워요.",
+  },
 ];
 
 // 배지: 수집·성취 도감에 표시되는 획득형 뱃지
