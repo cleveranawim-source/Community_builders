@@ -45,6 +45,36 @@ export const easterEggs = [
   { id: "egg-cat", x: -60, z: 11, icon: "🐈", name: "고양이의 낮잠 자리", toast: "마을 서쪽 구석, 고양이가 낮잠 자는 비밀 장소를 찾았어요... 야옹." },
 ];
 
+// 분실물 되돌려주기: 땅에 떨어진 물건을 '줍기' 버튼으로 집어 주인 NPC에게 돌려준다.
+// 마음 조각(자동 획득)과 달리 능동적으로 줍고, 주인을 찾아 배려하는 친사회적 루프.
+// owner = 주인 quest id (portraitOf로 초상 사용), thanks = 돌려준 순간의 사연 한 줄(여운의 핵심)
+export const lostItems = [
+  {
+    id: "lost-scarf",
+    icon: "🧣",
+    name: "잃어버린 목도리",
+    x: -16, z: -20,
+    owner: "nari", ownerName: "나리",
+    thanks: "아, 이거 우리 할머니가 떠 주신 목도리예요… 잃어버린 줄 알고 계속 마음이 무거웠는데. 찾아줘서 정말 고마워요.",
+  },
+  {
+    id: "lost-letter",
+    icon: "✉️",
+    name: "떨어진 손편지",
+    x: 24, z: 6,
+    owner: "welcome", ownerName: "유나",
+    thanks: "이 편지… 전학 간 친구한테 부치려던 거였어요. 잃어버려서 얼마나 속상했는지 몰라요. 챙겨줘서 고마워요!",
+  },
+  {
+    id: "lost-lunch",
+    icon: "🍱",
+    name: "주인 잃은 도시락",
+    x: 6, z: 30,
+    owner: "celebrate", ownerName: "도윤",
+    thanks: "제 도시락이에요! 점심시간에 못 찾아서 배곯을 뻔했는데. 챙겨줘서 고마워요 — 이따 같이 나눠 먹을래요?",
+  },
+];
+
 // 배지: 수집·성취 도감에 표시되는 획득형 뱃지
 export const badges = [
   { id: "first-mission", icon: "🌱", name: "첫 만남", desc: "첫 미션 해결", check: (s) => s.solved >= 1 },
@@ -55,6 +85,7 @@ export const badges = [
   { id: "gem-12", icon: "💛", name: "마음 수집가", desc: "마음 조각 12개", check: (s) => s.gems >= 12 },
   { id: "gem-all", icon: "💎", name: "조각의 완성", desc: "마음 조각 모두 수집", check: (s) => s.gems >= s.gemTotal },
   { id: "egg-all", icon: "🗺️", name: "숨은 길 탐험가", desc: "숨은 장소 3곳 발견", check: (s) => s.eggs >= 3 },
+  { id: "lost-all", icon: "📮", name: "마을의 배달부", desc: "잃어버린 물건 모두 되돌려주기", check: (s) => s.returned >= s.lostTotal },
 ];
 
 const BASE = import.meta.env.BASE_URL;

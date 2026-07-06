@@ -23,6 +23,7 @@ import {
   TITLE_BG,
   TITLE_BG_VIDEO,
   easterEggs,
+  lostItems,
   badges,
 } from "./data/index.js";
 import { uid, josa } from "./lib/utils.js";
@@ -533,6 +534,12 @@ function Game() {
   const [treasures, setTreasures] = useState(() => treasureSeeds.map((t) => ({ ...t, found: false })));
   const [foundEggs, setFoundEggs] = useState({});
   const [eggPopup, setEggPopup] = useState(null);
+  // 분실물: 각 물건의 상태(ground|returned) + 지금 들고 있는 물건 + 발견/돌려줌 프롬프트
+  const [lost, setLost] = useState(() => lostItems.map((l) => ({ id: l.id, status: "ground" })));
+  const [carrying, setCarrying] = useState(null);
+  const [nearLost, setNearLost] = useState(null);
+  const [deliverTarget, setDeliverTarget] = useState(null);
+  const [deliverPopup, setDeliverPopup] = useState(null);
   const [codexOpen, setCodexOpen] = useState(false);
   const [projectiles, setProjectiles] = useState([]);
   const [energy, setEnergy] = useState(0);
@@ -563,6 +570,11 @@ function Game() {
   const foundEggsRef = useRef(foundEggs);
   const projectilesRef = useRef(projectiles);
   const nearQuestRef = useRef(null);
+  // 분실물: world 렌더용(상태 배열·들고있는 id) + E키 판정용(근접 물건·전달 대상)
+  const lostRef = useRef(lost);
+  const carryingRef = useRef(null);
+  const nearLostRef = useRef(null);
+  const deliverTargetRef = useRef(null);
   // 안개 빌런 3마리: 배회하며 깬 장벽에 안개를 되살림, 빛구슬 맞으면 진정(스턴)
   const makeVillains = () => [
     { x: 40, z: 40, tx: 40, tz: 40, stunUntil: 0, active: true },
@@ -580,6 +592,7 @@ function Game() {
   const clearedFogCount = fogs.filter((fog) => fog.cleared).length;
   const treasureCount = treasures.filter((t) => t.found).length;
   const eggCount = Object.values(foundEggs).filter(Boolean).length;
+  const returnedCount = lost.filter((l) => l.status === "returned").length;
   const endingOpen = started && completed === quests.length && !endingDismissed;
 
   // 도감용 수집 현황 + 배지 획득 판정
@@ -590,6 +603,8 @@ function Game() {
     gems: treasureCount,
     gemTotal: treasures.length,
     eggs: eggCount,
+    returned: returnedCount,
+    lostTotal: lostItems.length,
   };
   const earnedBadges = badges.filter((b) => b.check(codexStats));
 
@@ -607,6 +622,14 @@ function Game() {
     foundEggsRef.current = foundEggs;
   }, [foundEggs]);
 
+  useEffect(() => {
+    lostRef.current = lost;
+  }, [lost]);
+
+  useEffect(() => {
+    carryingRef.current = carrying?.id || null;
+  }, [carrying]);
+
   // 누적 카운터: 증가분만 더한다 (리셋으로 0이 되어도 누적은 유지)
   // 주의: 델타는 반드시 지역 변수로 먼저 캡처한다 — setState 업데이터 안에서
   // ref.current를 직접 읽으면, 업데이터가 실행되는 시점엔 이미 아래에서
@@ -620,7 +643,7 @@ function Game() {
   }, [clearedFogCount]);
 
   if (import.meta.env.DEV) {
-    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef, fogsRef, playerHud, easterEggs, foundEggs, villainsRef, worldProgressRef, setEggPopup };
+    globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef, fogsRef, playerHud, easterEggs, foundEggs, villainsRef, worldProgressRef, setEggPopup, lostItems, lost, carrying, lostRef, carryingRef };
   }
 
   useEffect(() => {
@@ -657,6 +680,7 @@ function Game() {
         cleared: fogs.filter((f) => f.cleared).map((f) => f.id),
         found: treasures.filter((t) => t.found).map((t) => t.id),
         eggs: foundEggs,
+        returned: lost.filter((l) => l.status === "returned").map((l) => l.id),
         energy,
         score,
         endingDismissed,
@@ -673,7 +697,7 @@ function Game() {
     if (!started || !user) return undefined;
     const timer = window.setTimeout(() => saveNowRef.current(), 800);
     return () => window.clearTimeout(timer);
-  }, [started, user, profile, solved, answered, discovered, fogs, treasures, foundEggs, energy, score, endingDismissed, lifetimeCleared, lifetimeGems]);
+  }, [started, user, profile, solved, answered, discovered, fogs, treasures, foundEggs, lost, energy, score, endingDismissed, lifetimeCleared, lifetimeGems]);
 
   useEffect(() => {
     if (!started || !user) return undefined;
@@ -778,7 +802,26 @@ function Game() {
     const next = nearestDistance < NPC_RADIUS ? nearest : null;
     nearQuestRef.current = next;
     setNearQuest(next);
-  }, [playerHud, discovered, treasures, foundEggs]);
+
+    // 분실물: 들고 있지 않을 때만 근처 물건을 '줍기' 후보로, 들고 있으면 주인 근접 시 '돌려주기' 후보로
+    let pickable = null;
+    let deliver = null;
+    if (carrying) {
+      const owner = quests.find((q) => q.id === carrying.owner);
+      if (owner && Math.hypot(owner.pos[0] - playerHud.x, owner.pos[1] - playerHud.z) < NPC_RADIUS) {
+        deliver = carrying;
+      }
+    } else {
+      pickable = lostItems.find((item) => {
+        const state = lost.find((l) => l.id === item.id);
+        return state?.status === "ground" && Math.hypot(item.x - playerHud.x, item.z - playerHud.z) < 2.4;
+      }) || null;
+    }
+    nearLostRef.current = pickable;
+    deliverTargetRef.current = deliver;
+    setNearLost(pickable);
+    setDeliverTarget(deliver);
+  }, [playerHud, discovered, treasures, foundEggs, lost, carrying]);
 
   const openQuest = useCallback((quest) => {
     // 정답이 늘 왼쪽에 오지 않도록 선택지 순서를 무작위로 섞는다 (패턴 학습 방지)
@@ -787,6 +830,45 @@ function Game() {
   }, []);
   const openQuestRef = useRef(openQuest);
   openQuestRef.current = openQuest;
+
+  // 분실물 줍기 — 한 번에 하나만. 들면 주인 안내 표식이 켜진다.
+  const pickUpLost = useCallback((item) => {
+    if (!item) return;
+    setCarrying(item);
+    carryingRef.current = item.id;
+    setToast(`${item.icon} ${item.name}을(를) 주웠어요. 주인 ${item.ownerName}에게 돌려줄까요?`);
+    sfx.pickup();
+  }, []);
+  const pickUpLostRef = useRef(pickUpLost);
+  pickUpLostRef.current = pickUpLost;
+
+  // 분실물 내려놓기 — 원래 자리로 돌려보낸다(어딘가에 방치되어 사라지지 않도록).
+  const dropLost = useCallback(() => {
+    setCarrying((cur) => {
+      if (!cur) return null;
+      setLost((prev) => prev.map((l) => (l.id === cur.id ? { ...l, status: "ground" } : l)));
+      carryingRef.current = null;
+      setToast(`${cur.icon} ${cur.name}을(를) 원래 자리에 다시 놓아두었어요.`);
+      return null;
+    });
+  }, []);
+  const dropLostRef = useRef(dropLost);
+  dropLostRef.current = dropLost;
+
+  // 분실물 돌려주기 — 주인에게 전달하면 사연 팝업 + 에너지 보상
+  const deliverLost = useCallback(() => {
+    setCarrying((cur) => {
+      if (!cur) return cur;
+      setLost((prev) => prev.map((l) => (l.id === cur.id ? { ...l, status: "returned" } : l)));
+      carryingRef.current = null;
+      setDeliverPopup(cur);
+      setEnergy((prev) => Math.min(100, prev + 12));
+      sfx.solve();
+      return null;
+    });
+  }, []);
+  const deliverLostRef = useRef(deliverLost);
+  deliverLostRef.current = deliverLost;
 
   const shoot = useCallback(() => {
     const player = playerRef.current;
@@ -844,8 +926,15 @@ function Game() {
         event.preventDefault();
         if (!event.repeat && runningRef.current) shootRef.current();
       }
-      if (event.code === "KeyE" && !event.repeat && nearQuestRef.current && runningRef.current) {
-        openQuestRef.current(nearQuestRef.current);
+      if (event.code === "KeyE" && !event.repeat && runningRef.current) {
+        // 우선순위: 돌려주기 > 줍기 > 미션 대화
+        if (deliverTargetRef.current) {
+          deliverLostRef.current();
+        } else if (nearLostRef.current) {
+          pickUpLostRef.current(nearLostRef.current);
+        } else if (nearQuestRef.current) {
+          openQuestRef.current(nearQuestRef.current);
+        }
       }
     };
     const onUp = (event) => {
@@ -1052,6 +1141,7 @@ function Game() {
           solvedCount: completed,
           cleared: lifetimeCleared,
           gems: lifetimeGems,
+          returned: returnedCount,
           energy,
           score,
           done: completed === quests.length,
@@ -1059,7 +1149,7 @@ function Game() {
         .catch(() => {});
     }, 1000);
     return () => window.clearTimeout(timer);
-  }, [profile, user, discoveredCount, completed, lifetimeCleared, lifetimeGems, energy, score]);
+  }, [profile, user, discoveredCount, completed, lifetimeCleared, lifetimeGems, returnedCount, energy, score]);
 
   const joinRoom = (room, name, userInfo) => {
     import("./lib/firebase.js")
@@ -1095,6 +1185,11 @@ function Game() {
     setTreasures(restoredTreasures);
     setFoundEggs(save.eggs || {});
     treasuresRef.current = restoredTreasures;
+    const restoredLost = lostItems.map((l) => ({ id: l.id, status: (save.returned || []).includes(l.id) ? "returned" : "ground" }));
+    setLost(restoredLost);
+    lostRef.current = restoredLost;
+    setCarrying(null);
+    carryingRef.current = null;
     setEnergy(save.energy || 0);
     setScore(save.score || { self: 20, empathy: 20, relation: 20, community: 20 });
     setEndingDismissed(!!save.endingDismissed);
@@ -1163,6 +1258,11 @@ function Game() {
     setTreasures(resetTreasures);
     treasuresRef.current = resetTreasures;
     setFoundEggs({});
+    const resetLost = lostItems.map((l) => ({ id: l.id, status: "ground" }));
+    setLost(resetLost);
+    lostRef.current = resetLost;
+    setCarrying(null);
+    carryingRef.current = null;
     villainsRef.current = makeVillains();
     setProjectiles([]);
     projectilesRef.current = [];
@@ -1257,6 +1357,8 @@ function Game() {
         fogsRef={fogsRef}
         treasuresRef={treasuresRef}
         foundEggsRef={foundEggsRef}
+        lostRef={lostRef}
+        carryingRef={carryingRef}
         villainsRef={villainsRef}
         boostUntilRef={boostUntilRef}
         runningRef={runningRef}
@@ -1380,12 +1482,24 @@ function Game() {
         </div>
       </section>
 
-      {started && guide && (
+      {started && guide && !carrying && (
         <div className="guide-arrow">
           <Navigation size={16} style={{ transform: `rotate(${guide.angle - Math.PI / 4}rad)` }} />
           <span>
             {guide.quest.title} <em>{guide.distance}m</em>
           </span>
+        </div>
+      )}
+
+      {/* 분실물 들고 있을 때: 무엇을 나르는지 + 주인 안내 + 내려놓기 */}
+      {carrying && (
+        <div className="carry-hud">
+          <span className="carry-icon">{carrying.icon}</span>
+          <span className="carry-text">
+            <b>{carrying.name}</b>
+            <em>주인 {carrying.ownerName}에게 돌려주세요 📍</em>
+          </span>
+          <button className="carry-drop" onClick={dropLost}>내려놓기</button>
         </div>
       )}
 
@@ -1408,8 +1522,30 @@ function Game() {
         <FireButton onStart={startFiring} onStop={stopFiring} />
       </section>
 
-      {/* 미션 근접 안내 배너 */}
-      {nearQuest && !activeQuest && (
+      {/* 근접 안내 배너 — 우선순위: 돌려주기 > 줍기 > 미션 (한 번에 하나만) */}
+      {deliverTarget && !activeQuest ? (
+        <button className="quest-prompt lost-return" onClick={deliverLost}>
+          <span className="quest-prompt-badge">📮</span>
+          <span className="quest-prompt-avatar" style={{ borderColor: "#f5c665" }}>
+            <img src={portraitOf(deliverTarget.owner)} alt={deliverTarget.ownerName} />
+          </span>
+          <span className="quest-prompt-text">
+            <b>{deliverTarget.ownerName}에게 돌려주기</b>
+            <em>{deliverTarget.icon} {deliverTarget.name}</em>
+          </span>
+          <span className="quest-prompt-cta">돌려주기 <span className="quest-prompt-key">E</span></span>
+        </button>
+      ) : nearLost && !activeQuest ? (
+        <button className="quest-prompt lost-pickup" onClick={() => pickUpLost(nearLost)}>
+          <span className="quest-prompt-badge">?</span>
+          <span className="quest-prompt-emoji">{nearLost.icon}</span>
+          <span className="quest-prompt-text">
+            <b>누가 흘리고 갔어요</b>
+            <em>{nearLost.name} · 주워 볼까요?</em>
+          </span>
+          <span className="quest-prompt-cta">줍기 <span className="quest-prompt-key">E</span></span>
+        </button>
+      ) : nearQuest && !activeQuest ? (
         <button
           className={solved[nearQuest.id] ? "quest-prompt solved" : "quest-prompt"}
           onClick={() => openQuest(nearQuest)}
@@ -1427,7 +1563,7 @@ function Game() {
             {solved[nearQuest.id] ? "다시 보기" : "함께 해결"} <span className="quest-prompt-key">E</span>
           </span>
         </button>
-      )}
+      ) : null}
 
       {toast && <div className="toast">{toast}</div>}
 
@@ -1454,6 +1590,7 @@ function Game() {
               <div><span>빛장벽</span><strong>{clearedFogCount}/{fogs.length}</strong></div>
               <div><span>마음 조각</span><strong>{treasureCount}/{treasures.length}</strong></div>
               <div><span>숨은 장소</span><strong>{eggCount}/{easterEggs.length}</strong></div>
+              <div><span>돌려준 물건</span><strong>{returnedCount}/{lostItems.length}</strong></div>
             </div>
 
             <p className="codex-section-label">획득한 배지 · {earnedBadges.length}/{badges.length}</p>
@@ -1483,6 +1620,21 @@ function Game() {
             <p className="egg-popup-text">{eggPopup.toast}</p>
             <p className="egg-popup-count">숨은 장소 {eggPopup.count}/{easterEggs.length} 발견</p>
             <button className="primary" onClick={() => setEggPopup(null)}>계속 탐험하기</button>
+          </div>
+        </section>
+      )}
+
+      {deliverPopup && (
+        <section className="dialog-layer" onClick={() => setDeliverPopup(null)}>
+          <div className="deliver-popup" onClick={(event) => event.stopPropagation()}>
+            <div className="deliver-popup-avatar">
+              <img src={portraitOf(deliverPopup.owner)} alt={deliverPopup.ownerName} />
+              <span className="deliver-popup-item">{deliverPopup.icon}</span>
+            </div>
+            <p className="deliver-popup-kicker">{deliverPopup.ownerName}에게 돌려주었어요</p>
+            <p className="deliver-popup-thanks">“{deliverPopup.thanks}”</p>
+            <p className="deliver-popup-count">돌려준 물건 {returnedCount}/{lostItems.length} · 에너지 +12</p>
+            <button className="primary" onClick={() => setDeliverPopup(null)}>마음이 따뜻해졌어요</button>
           </div>
         </section>
       )}

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { quests, fogSeeds, easterEggs, HALF } from "./data/index.js";
+import { quests, fogSeeds, easterEggs, lostItems, HALF } from "./data/index.js";
 import { clamp } from "./lib/utils.js";
 
 const MOVE_SPEED = 9.2;
@@ -468,6 +468,47 @@ function getQuestionTexture() {
   return questionTexture;
 }
 
+// 이모지를 캔버스 텍스처로 구운 스프라이트 (분실물·들고다니기·주인 표식용)
+const emojiTextureCache = new globalThis.Map();
+function getEmojiTexture(emoji) {
+  if (emojiTextureCache.has(emoji)) return emojiTextureCache.get(emoji);
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  ctx.font = "96px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(emoji, 64, 72);
+  const tex = new THREE.CanvasTexture(canvas);
+  emojiTextureCache.set(emoji, tex);
+  return tex;
+}
+function makeEmojiSprite(emoji, size = 1) {
+  const spriteMat = new THREE.SpriteMaterial({ map: getEmojiTexture(emoji), transparent: true, depthWrite: false });
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.scale.set(size, size, 1);
+  return sprite;
+}
+
+// 땅에 떨어진 분실물 마커: 이모지 + 물음표 + 바닥 링 (누가 흘렸지?)
+function createLostMarker(emoji) {
+  const group = new THREE.Group();
+  const item = makeEmojiSprite(emoji, 1.05);
+  item.position.y = 0.95;
+  const q = new THREE.Sprite(new THREE.SpriteMaterial({ map: getQuestionTexture(), transparent: true, depthWrite: false }));
+  q.scale.set(0.6, 0.6, 1);
+  q.position.y = 1.85;
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.44, 0.56, 24),
+    new THREE.MeshBasicMaterial({ color: 0xffd98a, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.05;
+  group.add(item, q, ring);
+  return { group, item, q };
+}
+
 function createMistCocoon() {
   const group = new THREE.Group();
   const material = new THREE.MeshStandardMaterial({
@@ -864,6 +905,8 @@ export default function GameWorld({
   fogsRef,
   treasuresRef,
   foundEggsRef,
+  lostRef,
+  carryingRef,
   villainsRef,
   boostUntilRef,
   runningRef,
@@ -1078,6 +1121,28 @@ export default function GameWorld({
       g.position.set(egg.x, 0, egg.z);
       scene.add(g);
       eggMarkers.push({ id: egg.id, group: g, sparkle });
+    });
+
+    // 분실물: 땅 마커 + 주인 위 안내 표식(들고 있을 때만) + 플레이어 머리 위 들고다니기 스프라이트
+    const lostMarkers = lostItems.map((item) => {
+      const marker = createLostMarker(item.icon);
+      marker.group.position.set(item.x, 0, item.z);
+      scene.add(marker.group);
+      // 주인 NPC 위 안내 표식 (평소 숨김, 해당 물건을 들었을 때만 표시)
+      const beacon = new THREE.Group();
+      const pin = makeEmojiSprite("📍", 0.9);
+      pin.position.y = 0;
+      beacon.add(pin);
+      const ownerQuest = quests.find((q) => q.id === item.owner);
+      beacon.position.set(ownerQuest ? ownerQuest.pos[0] : 0, 3.1, ownerQuest ? ownerQuest.pos[1] : 0);
+      beacon.visible = false;
+      scene.add(beacon);
+      // 들고다니기 스프라이트 (플레이어 머리 위에 부착, 평소 숨김)
+      const carried = makeEmojiSprite(item.icon, 0.8);
+      carried.position.set(0, 2.5, 0);
+      carried.visible = false;
+      playerChar.group.add(carried);
+      return { id: item.id, marker, beacon, carried };
     });
 
     // 안개 빌런 모델 (최대 3마리)
@@ -1385,6 +1450,24 @@ export default function GameWorld({
           entry.group.position.y = 0.85 + k * 1.6;
           entry.group.rotation.y += dt * 9;
         }
+      });
+
+      // 분실물: 땅 마커(둥실) / 들고다니기 / 주인 안내 표식
+      const carriedId = carryingRef?.current || null;
+      const lostList = lostRef?.current || [];
+      lostMarkers.forEach((lm, i) => {
+        const state = lostList.find((l) => l.id === lm.id);
+        const onGround = state ? state.status === "ground" : true;
+        const isCarried = carriedId === lm.id;
+        lm.marker.group.visible = onGround && !isCarried;
+        if (lm.marker.group.visible) {
+          lm.marker.item.position.y = 0.95 + Math.sin(t * 2.2 + i) * 0.1;
+          lm.marker.q.position.y = 1.85 + Math.sin(t * 2.2 + i + 0.6) * 0.08;
+        }
+        lm.carried.visible = isCarried;
+        if (isCarried) lm.carried.position.y = 2.5 + Math.sin(t * 4) * 0.06;
+        lm.beacon.visible = isCarried;
+        if (isCarried) lm.beacon.children[0].position.y = Math.sin(t * 3.2) * 0.18;
       });
 
       // 다른 탐험가(피어): 위치 보간 + 이동 중이면 걷기 모션
