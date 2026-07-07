@@ -1982,3 +1982,88 @@ meter::-webkit-meter-optimum-value {
     font-size: 13px;
   }
 }
+
+/* ── 스마트폰 가로(landscape)모드: 화면 높이가 낮아 HUD가 플레이를 가림 → 대폭 축소·재배치 ──
+   (세로가 짧은 폰만 대상: 태블릿 가로는 높이 700px+라 해당 안 됨) */
+@media (orientation: landscape) and (max-height: 500px) {
+  /* 좌상단 정보 패널 최소화 */
+  .top-left {
+    top: 8px;
+    left: 8px;
+    width: min(230px, 42vw);
+    padding: 8px 10px;
+    border-radius: 14px;
+  }
+  h1 { font-size: 16px; }
+  .brand { gap: 7px; }
+  .brand span { display: none; }
+  .quest-progress { margin-top: 6px; padding-top: 6px; gap: 6px; }
+  .quest-progress strong { font-size: 15px; }
+  .quest-progress span { display: none; }
+  .party-strip { display: none; }             /* 파티 아바타 숨김(공간 확보) */
+  .online-chip { display: none; }             /* 접속 인원 칩 숨김 */
+  .chip-row { gap: 5px; margin-top: 6px; }
+  .energy-chip, .treasure-chip, .room-chip.small {
+    margin-top: 0;
+    padding: 4px 8px;
+    font-size: 10.5px;
+  }
+  .energy-chip { gap: 5px; }
+  .energy-chip strong { font-size: 13px; }
+  .energy-chip span { display: none; }        /* 라벨 숨기고 숫자만 */
+  .icon-chip { min-width: 27px; height: 26px; }
+  .brightness-chip { margin-top: 5px; padding: 4px 8px; font-size: 10px; }
+
+  /* 우상단 역량바: 컴팩트, 미니맵 숨김 */
+  .top-right {
+    top: 8px;
+    right: 8px;
+    bottom: auto;
+    width: min(180px, 38vw);
+    padding: 8px 10px;
+  }
+  .mini-map { display: none; }
+  .stats { gap: 5px; margin-top: 0; }
+  .stat { grid-template-columns: 11px 56px 1fr; gap: 5px; font-size: 10.5px; }
+  .stat span { white-space: nowrap; }
+  meter { height: 7px; }
+
+  /* 진행 방향 안내: 상단 중앙(빈 공간)에 작게 */
+  .guide-arrow {
+    top: 8px;
+    bottom: auto;
+    padding: 5px 11px;
+    font-size: 11px;
+  }
+
+  /* 좌우 컨트롤: 축소 + 바닥 밀착 */
+  .pad-left, .pad-right {
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    gap: 6px;
+  }
+  .joystick { width: 88px; height: 88px; }
+  .joystick-thumb {
+    width: 38px;
+    height: 38px;
+    left: calc(50% - 19px);
+    top: calc(50% - 19px);
+  }
+  .pad-hint { display: none; }
+  .shoot-fab { width: 66px; height: 66px; }
+  .boost-fab { width: 44px; height: 44px; font-size: 14px; }
+
+  /* 하단 배너: 컨트롤 사이 중앙에 낮게 배치 */
+  .quest-prompt {
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    max-width: min(340px, 44vw);
+    padding: 6px 12px 6px 8px;
+  }
+  .carry-hud {
+    bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+    max-width: min(340px, 44vw);
+  }
+  .toast {
+    bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+    font-size: 11px;
+  }
+}
