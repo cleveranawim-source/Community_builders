@@ -962,13 +962,15 @@ function Game() {
         if (!event.repeat && runningRef.current) shootRef.current();
       }
       if (event.code === "KeyE" && !event.repeat && runningRef.current) {
-        // 우선순위: 돌려주기 > 줍기 > 미션 대화
+        // 우선순위: 돌려주기 > 줍기 > 미션 대화 > (들고 있으면) 내려놓기
         if (deliverTargetRef.current) {
           deliverLostRef.current();
         } else if (nearLostRef.current) {
           pickUpLostRef.current(nearLostRef.current);
         } else if (nearQuestRef.current) {
           openQuestRef.current(nearQuestRef.current);
+        } else if (carryingRef.current) {
+          dropLostRef.current();
         }
       }
     };
@@ -1554,7 +1556,7 @@ function Game() {
             <b>{carrying.name}</b>
             <em>주인 {carrying.ownerName}에게 돌려주세요 📍</em>
           </span>
-          <button className="carry-drop" onClick={dropLost}>내려놓기</button>
+          <button className="carry-drop" onClick={dropLost}>내려놓기 <span className="carry-key">E</span></button>
         </div>
       )}
 
