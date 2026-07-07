@@ -425,21 +425,23 @@ function TeacherBoard() {
   );
 }
 
-function saveResultCard({ name, room, score, energy, cleared, gems, title }) {
+function saveResultCard({ name, room, score, energy, cleared, gems, eggs = 0, returned = 0, earnedBadges = [], title }) {
+  const W = 1000;
+  const H = 880;
   const canvas = document.createElement("canvas");
-  canvas.width = 1000;
-  canvas.height = 700;
+  canvas.width = W;
+  canvas.height = H;
   const ctx = canvas.getContext("2d");
 
-  const bg = ctx.createLinearGradient(0, 0, 1000, 700);
+  const bg = ctx.createLinearGradient(0, 0, W, H);
   bg.addColorStop(0, "#0b1a2e");
   bg.addColorStop(1, "#123047");
   ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, 1000, 700);
+  ctx.fillRect(0, 0, W, H);
 
   ctx.strokeStyle = "rgba(255,255,255,.35)";
   ctx.lineWidth = 3;
-  ctx.strokeRect(28, 28, 944, 644);
+  ctx.strokeRect(28, 28, W - 56, H - 56);
 
   ctx.fillStyle = "#facc15";
   ctx.font = "900 30px 'Apple SD Gothic Neo', sans-serif";
@@ -482,10 +484,41 @@ function saveResultCard({ name, room, score, energy, cleared, gems, title }) {
     ctx.fillText(String(value), 880, y + 8);
   });
 
+  // 수집·성취(도감) 섹션
+  ctx.strokeStyle = "rgba(255,255,255,.14)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(60, 636);
+  ctx.lineTo(W - 60, 636);
+  ctx.stroke();
+
+  ctx.fillStyle = "#facc15";
+  ctx.font = "900 22px 'Apple SD Gothic Neo', sans-serif";
+  ctx.fillText("수집 · 성취", 60, 676);
+
+  ctx.fillStyle = "#cbd5e1";
+  ctx.font = "700 21px 'Apple SD Gothic Neo', sans-serif";
+  ctx.fillText(
+    `마음 조각 ${gems}/${treasureSeeds.length}    ·    숨은 장소 ${eggs}/${easterEggs.length}    ·    돌려준 물건 ${returned}/${lostItems.length}`,
+    60, 712
+  );
+
+  ctx.fillStyle = "#94e2b8";
+  ctx.font = "800 20px 'Apple SD Gothic Neo', sans-serif";
+  ctx.fillText(`획득 배지 ${earnedBadges.length}/${badges.length}`, 60, 752);
+
+  // 획득한 배지 아이콘을 한 줄로 (이모지)
+  ctx.font = "34px 'Apple SD Gothic Neo', sans-serif";
+  ctx.textBaseline = "middle";
+  earnedBadges.forEach((b, i) => {
+    ctx.fillText(b.icon, 60 + i * 52, 792);
+  });
+  ctx.textBaseline = "alphabetic";
+
   const today = new Date().toLocaleDateString("ko-KR");
   ctx.fillStyle = "#94a3b8";
   ctx.font = "700 20px 'Apple SD Gothic Neo', sans-serif";
-  ctx.fillText(`${today} · 사회정서교육(SEL) 공동체 활동`, 60, 656);
+  ctx.fillText(`${today} · 사회정서교육(SEL) 공동체 활동`, 60, 836);
 
   const stamp = new Date().toISOString().slice(0, 10);
   const roomTag = room ? `${room}반_` : "";
@@ -535,7 +568,7 @@ function Game() {
   const [foundEggs, setFoundEggs] = useState({});
   const [eggPopup, setEggPopup] = useState(null);
   // 분실물: 각 물건의 상태(ground|returned) + 지금 들고 있는 물건 + 발견/돌려줌 프롬프트
-  const [lost, setLost] = useState(() => lostItems.map((l) => ({ id: l.id, status: "ground" })));
+  const [lost, setLost] = useState(() => lostItems.map((l) => ({ id: l.id, status: "ground", x: l.x, z: l.z })));
   const [carrying, setCarrying] = useState(null);
   const [nearLost, setNearLost] = useState(null);
   const [deliverTarget, setDeliverTarget] = useState(null);
@@ -680,7 +713,7 @@ function Game() {
         cleared: fogs.filter((f) => f.cleared).map((f) => f.id),
         found: treasures.filter((t) => t.found).map((t) => t.id),
         eggs: foundEggs,
-        returned: lost.filter((l) => l.status === "returned").map((l) => l.id),
+        lost: lost.map((l) => ({ id: l.id, status: l.status, x: l.x, z: l.z })),
         energy,
         score,
         endingDismissed,
@@ -780,7 +813,7 @@ function Game() {
 
     // 숨은 이스터에그 발견 → 전용 축하 팝업
     const newEgg = easterEggs.find(
-      (egg) => !foundEggs[egg.id] && Math.hypot(egg.x - playerHud.x, egg.z - playerHud.z) < 2.6
+      (egg) => !foundEggs[egg.id] && Math.hypot(egg.x - playerHud.x, egg.z - playerHud.z) < 2.2
     );
     if (newEgg) {
       const total = Object.values(foundEggs).filter(Boolean).length + 1;
@@ -814,7 +847,7 @@ function Game() {
     } else {
       pickable = lostItems.find((item) => {
         const state = lost.find((l) => l.id === item.id);
-        return state?.status === "ground" && Math.hypot(item.x - playerHud.x, item.z - playerHud.z) < 2.4;
+        return state?.status === "ground" && Math.hypot(state.x - playerHud.x, state.z - playerHud.z) < 2.4;
       }) || null;
     }
     nearLostRef.current = pickable;
@@ -842,13 +875,15 @@ function Game() {
   const pickUpLostRef = useRef(pickUpLost);
   pickUpLostRef.current = pickUpLost;
 
-  // 분실물 내려놓기 — 원래 자리로 돌려보낸다(어딘가에 방치되어 사라지지 않도록).
+  // 분실물 내려놓기 — 지금 서 있는 자리에 그대로 놓는다.
   const dropLost = useCallback(() => {
     setCarrying((cur) => {
       if (!cur) return null;
-      setLost((prev) => prev.map((l) => (l.id === cur.id ? { ...l, status: "ground" } : l)));
+      const px = Math.round(playerRef.current.x);
+      const pz = Math.round(playerRef.current.z);
+      setLost((prev) => prev.map((l) => (l.id === cur.id ? { ...l, status: "ground", x: px, z: pz } : l)));
       carryingRef.current = null;
-      setToast(`${cur.icon} ${cur.name}을(를) 원래 자리에 다시 놓아두었어요.`);
+      setToast(`${cur.icon} ${cur.name}을(를) 여기에 내려놓았어요.`);
       return null;
     });
   }, []);
@@ -1185,7 +1220,13 @@ function Game() {
     setTreasures(restoredTreasures);
     setFoundEggs(save.eggs || {});
     treasuresRef.current = restoredTreasures;
-    const restoredLost = lostItems.map((l) => ({ id: l.id, status: (save.returned || []).includes(l.id) ? "returned" : "ground" }));
+    const restoredLost = lostItems.map((l) => {
+      const saved = (save.lost || []).find((s) => s.id === l.id);
+      if (saved) return { id: l.id, status: saved.status, x: saved.x ?? l.x, z: saved.z ?? l.z };
+      // 구버전 세이브 호환: returned 배열만 있던 시절
+      const wasReturned = (save.returned || []).includes(l.id);
+      return { id: l.id, status: wasReturned ? "returned" : "ground", x: l.x, z: l.z };
+    });
     setLost(restoredLost);
     lostRef.current = restoredLost;
     setCarrying(null);
@@ -1258,7 +1299,7 @@ function Game() {
     setTreasures(resetTreasures);
     treasuresRef.current = resetTreasures;
     setFoundEggs({});
-    const resetLost = lostItems.map((l) => ({ id: l.id, status: "ground" }));
+    const resetLost = lostItems.map((l) => ({ id: l.id, status: "ground", x: l.x, z: l.z }));
     setLost(resetLost);
     lostRef.current = resetLost;
     setCarrying(null);
@@ -1304,6 +1345,20 @@ function Game() {
 
   const averageScore = Math.round(stats.reduce((sum, stat) => sum + score[stat.key], 0) / stats.length);
   const endingTitle = averageScore >= 85 ? "마을의 건축가" : averageScore >= 70 ? "공동체 정원사" : "따뜻한 탐험가";
+
+  // 인증서 저장 — 미션 점수 + 도감 수집·성취를 함께 담는다. 엔딩·도감 어디서든 호출 가능.
+  const saveCertificate = () => saveResultCard({
+    name: profile.name,
+    room: profile.room,
+    score,
+    energy,
+    cleared: clearedFogCount,
+    gems: treasureCount,
+    eggs: eggCount,
+    returned: returnedCount,
+    earnedBadges,
+    title: endingTitle,
+  });
 
   // 우리 반 마을 밝기: 반 전체가 깬 장벽 합산 (목표 = 인원×30, 최소 맵 장벽 수)
   const classBrightness = useMemo(() => {
@@ -1482,7 +1537,7 @@ function Game() {
         </div>
       </section>
 
-      {started && guide && !carrying && (
+      {started && guide && (
         <div className="guide-arrow">
           <Navigation size={16} style={{ transform: `rotate(${guide.angle - Math.PI / 4}rad)` }} />
           <span>
@@ -1606,6 +1661,14 @@ function Game() {
                 );
               })}
             </div>
+
+            {completed === quests.length ? (
+              <button className="codex-save" onClick={saveCertificate}>
+                🏅 지금까지의 인증서 저장 (수집·배지 포함)
+              </button>
+            ) : (
+              <p className="codex-save-hint">16개 미션을 모두 해결하면 여기서 인증서를 저장할 수 있어요.</p>
+            )}
           </div>
         </section>
       )}
@@ -1681,7 +1744,14 @@ function Game() {
 
             {(dialogView === "result" || dialogView === "recap") && (
               <div className="insight-block">
-                {dialogView === "recap" && (
+                {dialogView === "result" && (
+                  <div className={activeQuest.choice.good ? "answer-tag good" : "answer-tag soft"}>
+                    {activeQuest.choice.good
+                      ? "좋은 선택이에요! 마을이 한 뼘 더 따뜻해졌어요."
+                      : "그 마음도 이해돼요. 그런데 이렇게 하면 친구가 더 좋았을 거예요 👇"}
+                  </div>
+                )}
+                {(dialogView === "recap" || (dialogView === "result" && !activeQuest.choice.good)) && (
                   <p className="recap-choice">✓ {activeQuest.quest.choices.find((c) => c.good)?.text}</p>
                 )}
                 <div className="insight-card">
@@ -1693,9 +1763,19 @@ function Game() {
                   </span>
                   <p>{activeQuest.quest.insight}</p>
                 </div>
-                <button className="dialog-confirm" onClick={() => setActiveQuest(null)}>
-                  확인
-                </button>
+                <div className="result-actions">
+                  {dialogView === "result" && !activeQuest.choice.good && !solved[activeQuest.quest.id] && (
+                    <button
+                      className="dialog-retry"
+                      onClick={() => setActiveQuest({ quest: activeQuest.quest, view: null, choices: activeQuest.choices })}
+                    >
+                      다시 골라볼래요?
+                    </button>
+                  )}
+                  <button className="dialog-confirm" onClick={() => setActiveQuest(null)}>
+                    확인
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1723,21 +1803,10 @@ function Game() {
               ))}
             </div>
             <div className="ending-actions">
-              <button
-                className="primary"
-                onClick={() => saveResultCard({
-                  name: profile.name,
-                  room: profile.room,
-                  score,
-                  energy,
-                  cleared: clearedFogCount,
-                  gems: treasureCount,
-                  title: endingTitle,
-                })}
-              >
+              <button className="primary" onClick={saveCertificate}>
                 인증서 저장
               </button>
-              <button onClick={() => setEndingDismissed(true)}>계속 탐험</button>
+              <button onClick={() => setEndingDismissed(true)}>계속 탐험 (나중에 저장)</button>
               <button onClick={goHome}>메인으로</button>
               <button onClick={() => setConfirmReset(true)}>다시 시작</button>
             </div>

@@ -491,17 +491,17 @@ function makeEmojiSprite(emoji, size = 1) {
   return sprite;
 }
 
-// 땅에 떨어진 분실물 마커: 이모지 + 물음표 + 바닥 링 (누가 흘렸지?)
+// 땅에 떨어진 분실물 마커: 이모지 + 물음표 + 바닥 링 (누가 흘렸지?) — 작게
 function createLostMarker(emoji) {
   const group = new THREE.Group();
-  const item = makeEmojiSprite(emoji, 1.05);
-  item.position.y = 0.95;
+  const item = makeEmojiSprite(emoji, 0.7);
+  item.position.y = 0.72;
   const q = new THREE.Sprite(new THREE.SpriteMaterial({ map: getQuestionTexture(), transparent: true, depthWrite: false }));
-  q.scale.set(0.6, 0.6, 1);
-  q.position.y = 1.85;
+  q.scale.set(0.42, 0.42, 1);
+  q.position.y = 1.42;
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.44, 0.56, 24),
-    new THREE.MeshBasicMaterial({ color: 0xffd98a, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })
+    new THREE.RingGeometry(0.32, 0.4, 24),
+    new THREE.MeshBasicMaterial({ color: 0xffd98a, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false })
   );
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.05;
@@ -1156,6 +1156,7 @@ export default function GameWorld({
     sceneRef.current = { scene, camera, renderer };
     if (import.meta.env.DEV) globalThis.__cbRenderer = renderer;
 
+    let resizeQueued = false;
     const onResize = () => {
       if (!mount.clientWidth || !mount.clientHeight) return;
       const nextAspect = mount.clientWidth / mount.clientHeight;
@@ -1164,9 +1165,21 @@ export default function GameWorld({
       camera.top = cameraSize / 2;
       camera.bottom = -cameraSize / 2;
       camera.updateProjectionMatrix();
-      renderer.setSize(mount.clientWidth, mount.clientHeight);
+      renderer.setSize(mount.clientWidth, mount.clientHeight, false);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelCap));
     };
     window.addEventListener("resize", onResize);
+    // 창/컨테이너 크기 변화를 요소 단위로 즉시 추적 (window resize보다 촘촘하고 확실).
+    // rAF로 한 프레임에 한 번만 반영해 ResizeObserver 루프 경고를 피한다.
+    const ro = new ResizeObserver(() => {
+      if (resizeQueued) return;
+      resizeQueued = true;
+      requestAnimationFrame(() => {
+        resizeQueued = false;
+        onResize();
+      });
+    });
+    ro.observe(mount);
 
     // 이동 물리 + 카메라 추적 + 연출을 단일 rAF 루프에서 처리한다.
     let raf = 0;
@@ -1461,8 +1474,13 @@ export default function GameWorld({
         const isCarried = carriedId === lm.id;
         lm.marker.group.visible = onGround && !isCarried;
         if (lm.marker.group.visible) {
-          lm.marker.item.position.y = 0.95 + Math.sin(t * 2.2 + i) * 0.1;
-          lm.marker.q.position.y = 1.85 + Math.sin(t * 2.2 + i + 0.6) * 0.08;
+          // 내려놓은 위치를 따라가도록 매 프레임 좌표를 상태에서 읽는다 (드롭 시 그 자리에 놓임)
+          if (state && typeof state.x === "number") {
+            lm.marker.group.position.x = state.x;
+            lm.marker.group.position.z = state.z;
+          }
+          lm.marker.item.position.y = 0.72 + Math.sin(t * 2.2 + i) * 0.09;
+          lm.marker.q.position.y = 1.42 + Math.sin(t * 2.2 + i + 0.6) * 0.07;
         }
         lm.carried.visible = isCarried;
         if (isCarried) lm.carried.position.y = 2.5 + Math.sin(t * 4) * 0.06;
@@ -1493,6 +1511,7 @@ export default function GameWorld({
 
     return () => {
       cancelAnimationFrame(raf);
+      ro.disconnect();
       window.removeEventListener("resize", onResize);
       disposeScene(scene, renderer);
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
