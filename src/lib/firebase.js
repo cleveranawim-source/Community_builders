@@ -42,3 +42,23 @@ export function watchRoom(code, callback) {
     () => callback(null)
   );
 }
+
+// 부하 최적화: 학생 전원이 반 전체를 구독하면 read가 N²로 폭증한다.
+// 그래서 교사 화면만 watchRoom으로 전체를 집계하고, 반 밝기 요약을
+// builders/__summary 한 문서에 대신 기록한다(규칙상 builders 하위라 재배포 불필요).
+// 학생은 이 한 문서만 watchSummary로 구독해 read를 O(N)로 낮춘다.
+export async function pushSummary(code, data) {
+  await setDoc(
+    doc(getDb(), "rooms", code, "builders", "__summary"),
+    { ...data, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
+export function watchSummary(code, callback) {
+  return onSnapshot(
+    doc(getDb(), "rooms", code, "builders", "__summary"),
+    (snap) => callback(snap.exists() ? snap.data() : null),
+    () => callback(null)
+  );
+}

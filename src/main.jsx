@@ -269,6 +269,9 @@ function TeacherBoard() {
   const [active, setActive] = useState("");
   const [rows, setRows] = useState([]);
   const [error, setError] = useState("");
+  // 요약 기록 throttle: 학생 밝기막대용 __summary 문서를 최대 8초에 한 번만 갱신
+  const lastSummaryRef = useRef({ total: -1, count: -1 });
+  const lastSummaryAtRef = useRef(0);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -280,7 +283,8 @@ function TeacherBoard() {
         unsub = fb.watchRoom(active, (list) => {
           if (list) {
             setError("");
-            setRows(list);
+            // __summary는 학생 밝기막대용 집계 문서 — 학생 명단에서 제외
+            setRows(list.filter((r) => r.id !== "__summary"));
           } else {
             setError("실시간 연결이 끊겼습니다.");
           }
@@ -292,6 +296,22 @@ function TeacherBoard() {
       if (unsub) unsub();
     };
   }, [active]);
+
+  // 교사 화면이 반 전체를 대신 집계해 요약 1문서에 기록한다(학생은 이것만 읽음).
+  // 변경이 있을 때만, 최대 8초에 한 번 기록해 write·read를 모두 낮춘다.
+  useEffect(() => {
+    if (!active || !rows.length) return undefined;
+    const total = rows.reduce((sum, r) => sum + (r.cleared || 0), 0);
+    const count = rows.length;
+    if (total === lastSummaryRef.current.total && count === lastSummaryRef.current.count) return undefined;
+    const delay = Math.max(0, 8000 - (Date.now() - lastSummaryAtRef.current));
+    const timer = window.setTimeout(() => {
+      lastSummaryRef.current = { total, count };
+      lastSummaryAtRef.current = Date.now();
+      import("./lib/firebase.js").then((fb) => fb.pushSummary(active, { total, count })).catch(() => {});
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [active, rows]);
 
   const open = (value) => {
     const next = value.trim().toUpperCase();
@@ -579,7 +599,7 @@ function Game() {
   const [toast, setToast] = useState("");
   const [score, setScore] = useState({ self: 20, empathy: 20, relation: 20, community: 20 });
   const [endingDismissed, setEndingDismissed] = useState(false);
-  const [classRows, setClassRows] = useState(null);
+  const [classSummary, setClassSummary] = useState(null);
   // 누적 기록: '다시 시작'해도 줄지 않는다 (반 밝기·교사 화면용)
   const [lifetimeCleared, setLifetimeCleared] = useState(0);
   const [lifetimeGems, setLifetimeGems] = useState(0);
@@ -1148,7 +1168,8 @@ function Game() {
     };
   }, [started, profile, user]);
 
-  // 우리 반 모드: 반 전체 진행을 구독해 '마을 밝기' 공동 목표를 계산
+  // 우리 반 모드: 반 밝기 '요약 1문서'만 구독한다(전체 컬렉션 구독 금지 — read O(N²)→O(N)).
+  // 요약은 교사 화면이 대신 집계해 기록한다. 교사 화면이 없으면 개인 진행으로 자연 폴백.
   useEffect(() => {
     if (!profile?.room) return undefined;
     let unsub = null;
@@ -1156,17 +1177,19 @@ function Game() {
     import("./lib/firebase.js")
       .then((fb) => {
         if (cancelled) return;
-        unsub = fb.watchRoom(profile.room, (list) => setClassRows(list));
+        unsub = fb.watchSummary(profile.room, (data) => setClassSummary(data));
       })
       .catch(() => {});
     return () => {
       cancelled = true;
       if (unsub) unsub();
-      setClassRows(null);
+      setClassSummary(null);
     };
   }, [profile]);
 
-  // 우리 반 모드: 진행 상황을 1초 디바운스로 Firestore에 기록 (장벽·조각은 누적값)
+  // 우리 반 모드: 진행 상황을 2.5초 디바운스로 Firestore에 기록 (장벽·조각은 누적값).
+  // write 부하를 줄이려 '자주 바뀌는 energy'는 트리거(deps)에서 제외한다 — 미션·장벽·조각
+  // 등 의미 있는 변화가 일어날 때 함께 최신 energy가 실려 나가므로 대시보드엔 충분히 반영된다.
   useEffect(() => {
     if (!profile?.room || !user) return undefined;
     const timer = window.setTimeout(() => {
@@ -1184,9 +1207,10 @@ function Game() {
           done: completed === quests.length,
         }))
         .catch(() => {});
-    }, 1000);
+    }, 2500);
     return () => window.clearTimeout(timer);
-  }, [profile, user, discoveredCount, completed, lifetimeCleared, lifetimeGems, returnedCount, energy, score]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, user, discoveredCount, completed, lifetimeCleared, lifetimeGems, returnedCount, score]);
 
   const joinRoom = (room, name, userInfo) => {
     import("./lib/firebase.js")
@@ -1362,13 +1386,13 @@ function Game() {
     title: endingTitle,
   });
 
-  // 우리 반 마을 밝기: 반 전체가 깬 장벽 합산 (목표 = 인원×30, 최소 맵 장벽 수)
+  // 우리 반 마을 밝기: 교사 화면이 집계해 준 요약(총 깬 장벽·인원)으로 계산
   const classBrightness = useMemo(() => {
-    if (!classRows || !classRows.length) return null;
-    const total = classRows.reduce((sum, row) => sum + (row.cleared || 0), 0);
-    const goal = Math.max(fogSeeds.length, classRows.length * 30);
+    if (!classSummary || !classSummary.count) return null;
+    const total = classSummary.total || 0;
+    const goal = Math.max(fogSeeds.length, classSummary.count * 30);
     return { total, ratio: Math.min(1, total / goal) };
-  }, [classRows]);
+  }, [classSummary]);
 
   const personalProgress = (completed / quests.length) * 0.75 + (clearedFogCount / fogs.length) * 0.25;
   // 반 모드에서는 반 전체 밝기와 개인 진행 중 더 밝은 쪽으로 안개가 걷힌다
