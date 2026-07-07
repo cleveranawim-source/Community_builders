@@ -137,3 +137,4 @@ export function portraitOf(id) {
 export const HERO_PORTRAIT = `${BASE}assets/portraits/hero.jpg`;
 export const TITLE_BG = `${BASE}assets/portraits/title-bg.jpg`;
 export const TITLE_BG_VIDEO = `${BASE}assets/video/title-bg.mp4`;
+export const TEASER_VIDEO = `${BASE}assets/video/teaser.mp4`;

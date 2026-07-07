@@ -22,6 +22,7 @@ import {
   HERO_PORTRAIT,
   TITLE_BG,
   TITLE_BG_VIDEO,
+  TEASER_VIDEO,
   easterEggs,
   lostItems,
   badges,
@@ -191,6 +192,7 @@ function IntroScreen({ onStart, onContinue, savedGame }) {
   const [name, setName] = useState("");
   const [room, setRoom] = useState("");
   const [videoOk, setVideoOk] = useState(true);
+  const [showTeaser, setShowTeaser] = useState(false);
   const videoRef = useRef(null);
 
   // 일부 브라우저는 autoPlay 속성만으로 재생을 시작하지 않으므로 마운트 시 명시적으로 재생 시도
@@ -251,6 +253,9 @@ function IntroScreen({ onStart, onContinue, savedGame }) {
         <button className="intro-start" onClick={start}>
           <Sparkles size={18} /> {savedGame ? "새로 시작" : "모험 시작"}
         </button>
+        <button className="intro-teaser" onClick={() => setShowTeaser(true)}>
+          ▶ 티저 영상 보기 <em>30초</em>
+        </button>
         <p className="intro-help">
           PC: 화살표·WASD 이동 / 스페이스 빛구슬 / E 대화
           <br />모바일: 왼손 조이스틱 이동 · 오른손 빛구슬(꾹 누르면 연사)
@@ -260,6 +265,22 @@ function IntroScreen({ onStart, onContinue, savedGame }) {
       <div className="intro-brand" aria-label="제작 LevLab YEOL">
         <b>Lev</b>Lab <span>YEOL</span>
       </div>
+
+      {showTeaser && (
+        <div className="teaser-modal" onClick={() => setShowTeaser(false)}>
+          <div className="teaser-frame" onClick={(event) => event.stopPropagation()}>
+            <button className="teaser-close" onClick={() => setShowTeaser(false)} aria-label="닫기">✕</button>
+            <video
+              className="teaser-video"
+              src={TEASER_VIDEO}
+              autoPlay
+              controls
+              playsInline
+              onEnded={() => setShowTeaser(false)}
+            />
+          </div>
+        </div>
+      )}
     </section>
   );
 }
