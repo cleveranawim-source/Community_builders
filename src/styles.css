@@ -1194,37 +1194,34 @@ meter::-webkit-meter-optimum-value {
 }
 
 @media (max-width: 520px) {
-  .brand svg,
-  .quest-progress span {
-    display: none;
+  /* 세로 폰: 좌상단 패널이 화면을 많이 가리므로 핵심만 남기고 대폭 축소 */
+  .top-left {
+    top: 10px;
+    left: 10px;
+    width: min(320px, calc(100vw - 20px));
+    padding: 11px 13px;
+    border-radius: 18px;
   }
-
-  .party-strip {
-    grid-template-columns: repeat(6, 36px);
-    gap: 6px;
+  h1 { font-size: 21px; }
+  .brand svg { display: none; }
+  .brand span { display: none; }          /* 부제 "Class Community World" 숨김 */
+  .quest-progress { margin-top: 9px; padding-top: 9px; gap: 7px; }
+  .quest-progress span { display: none; }
+  .quest-progress strong { font-size: 18px; }
+  .party-strip { display: none; }          /* 파티 아바타 숨김(공간 확보) */
+  /* ⚠️ 칩 클래스는 아래(.chip-row 영역)에 plain 재정의가 있어 그것이 미디어쿼리를
+     덮어씀 → .top-left 상위 선택자로 특이도를 높여 확실히 이기게 한다. */
+  .top-left .online-chip { display: none; }   /* 접속 인원 칩 숨김 */
+  .top-left .chip-row { gap: 6px; margin-top: 8px; }
+  .top-left .energy-chip,
+  .top-left .treasure-chip,
+  .top-left .room-chip.small {
+    margin-top: 0;
+    padding: 5px 9px;
+    font-size: 11px;
   }
-
-  .party-member {
-    padding: 4px;
-  }
-
-  .party-member i {
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-  }
-
-  .party-member span {
-    display: none;
-  }
-
-  h1 {
-    font-size: 26px;
-  }
-
-  .brand span {
-    font-size: 12px;
-  }
+  .top-left .energy-chip strong { font-size: 15px; }
+  .top-left .brightness-chip { margin-top: 7px; padding: 5px 9px; font-size: 10.5px; }
 
   .top-right {
     display: none;

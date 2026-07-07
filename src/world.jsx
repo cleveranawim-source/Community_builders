@@ -1165,8 +1165,11 @@ export default function GameWorld({
       camera.top = cameraSize / 2;
       camera.bottom = -cameraSize / 2;
       camera.updateProjectionMatrix();
-      renderer.setSize(mount.clientWidth, mount.clientHeight, false);
+      // updateStyle=true(기본): 회전·리사이즈 시 캔버스의 인라인 크기까지 갱신해야
+      // 캔버스가 항상 컨테이너를 꽉 채운다. (false면 회전 후 이전 방향 크기가 남아
+      // 캔버스가 한쪽에만 그려지고 나머지가 검게 남는 버그가 생긴다.)
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelCap));
+      renderer.setSize(mount.clientWidth, mount.clientHeight);
     };
     window.addEventListener("resize", onResize);
     // 창/컨테이너 크기 변화를 요소 단위로 즉시 추적 (window resize보다 촘촘하고 확실).
