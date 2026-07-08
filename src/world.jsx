@@ -966,7 +966,9 @@ export default function GameWorld({
     const lowPower =
       (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
       Math.min(window.screen?.width || 9999, window.screen?.height || 9999) <= 480;
-    const pixelCap = lowPower ? 1.1 : 1.4;
+    // 태블릿·폰(터치 기기)은 코어가 많아도 발열이 심함 → 30fps·픽셀비율 하향으로 부하 절반
+    const touchDevice = window.matchMedia?.("(pointer: coarse)")?.matches || false;
+    const pixelCap = lowPower ? 1.1 : touchDevice ? 1.25 : 1.4;
     const renderer = new THREE.WebGLRenderer({
       antialias: !lowPower,
       alpha: false,
@@ -986,7 +988,7 @@ export default function GameWorld({
     const sun = new THREE.DirectionalLight(0xfff3df, 3.4);
     sun.position.set(8, 14, 9);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(lowPower ? 1024 : 1536, lowPower ? 1024 : 1536);
+    sun.shadow.mapSize.set(lowPower || touchDevice ? 1024 : 1536, lowPower || touchDevice ? 1024 : 1536);
     sun.shadow.camera.left = -24;
     sun.shadow.camera.right = 24;
     sun.shadow.camera.top = 24;
@@ -1190,7 +1192,7 @@ export default function GameWorld({
     let lastSync = 0;
     let lastBlockedToast = 0;
     // 발열 완화: 120Hz(ProMotion) 태블릿에서도 최대 프레임을 제한한다
-    const FRAME_MS = lowPower ? 1000 / 30 : 1000 / 60;
+    const FRAME_MS = lowPower || touchDevice ? 1000 / 30 : 1000 / 60;
     let lastFrame = 0;
     const camTarget = new THREE.Vector3();
     const bloomM4 = new THREE.Matrix4();
