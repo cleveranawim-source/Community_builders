@@ -1173,11 +1173,13 @@ meter::-webkit-meter-optimum-value {
     grid-template-columns: 18px 64px 1fr;
   }
 
-  /* 하단 스택(세로 폰): prompt 150 → carry-hud 228 → guide 292 → toast 348 (겹침 방지) */
+  /* 하단 스택(세로): prompt 150 → carry-hud 228 → toast 288.
+     캐릭터가 화면 중앙에 있으므로 토스트가 중앙(40%+)까지 올라오지 않게 한다. */
   .toast {
-    bottom: 348px;
+    bottom: 288px;
     border-radius: 18px;
     font-size: 12px;
+    max-width: min(400px, calc(100vw - 48px));
   }
 
   .carry-hud {
@@ -1228,6 +1230,11 @@ meter::-webkit-meter-optimum-value {
   }
   .top-left .energy-chip strong { font-size: 15px; }
   .top-left .brightness-chip { margin-top: 7px; padding: 5px 9px; font-size: 10.5px; }
+
+  /* 길안내: 화면 중앙을 가리는 떠있는 pill 대신 패널 속 칩으로.
+     (.guide-arrow 기본 규칙이 파일 뒤에 있어 특이도를 높여야 이김) */
+  .game-shell .guide-arrow { display: none; }
+  .top-left .guide-chip { display: inline-flex; }
 
   .top-right {
     display: none;
@@ -1368,6 +1375,23 @@ meter::-webkit-meter-optimum-value {
   box-shadow: 0 8px 20px rgba(0,0,0,.35), inset 0 -3px 0 rgba(0,0,0,.2);
   pointer-events: none;
 }
+
+/* 세로 폰용 길안내 칩 (좌상단 패널 내부, 기본 숨김 — 520px 이하에서 guide-arrow 대신 표시) */
+.guide-chip {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  margin-top: 7px;
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, .1);
+  color: #f8fafc;
+  font-size: 11.5px;
+  font-weight: 900;
+}
+.guide-chip svg { color: #facc15; flex: none; }
+.guide-chip em { font-style: normal; color: #86efac; }
 
 .guide-arrow {
   position: absolute;
@@ -2036,7 +2060,7 @@ meter::-webkit-meter-optimum-value {
 
   .guide-arrow {
     top: auto;
-    bottom: calc(292px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(348px + env(safe-area-inset-bottom, 0px));
     font-size: 12px;
   }
 
@@ -2128,14 +2152,17 @@ meter::-webkit-meter-optimum-value {
     max-width: min(340px, 44vw);
     padding: 6px 12px 6px 8px;
   }
-  /* 하단 스택(가로 폰): prompt 12 → carry-hud 86 → toast 142 (겹침 방지) */
+  /* 하단 스택(가로 폰): prompt 12 → carry-hud 86. 토스트는 화면 중앙을 가리지 않도록
+     상단 중앙(길안내 아래)으로 이동 — 상단 중앙은 좌우 패널 사이 빈 공간. */
   .carry-hud {
     bottom: calc(86px + env(safe-area-inset-bottom, 0px));
     max-width: min(340px, 44vw);
   }
   .toast {
-    bottom: calc(142px + env(safe-area-inset-bottom, 0px));
+    top: 52px;
+    bottom: auto;
     font-size: 11px;
+    max-width: min(380px, 46vw);
   }
 
   /* 미션 대화창: 낮은 화면에서 꽉 차지 않게 압축 (아바타 좌측 소형 + 2열 선택지) */

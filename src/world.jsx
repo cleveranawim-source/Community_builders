@@ -978,6 +978,14 @@ export default function GameWorld({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelCap));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
+    // 발열 완화(폰·태블릿): 그림자맵을 매 프레임 다시 그리지 않고 3프레임에 1번만 갱신
+    // (씬 대부분이 정적이라 시각 차이는 거의 없고 GPU 부하가 크게 줄어든다)
+    const shadowEvery = lowPower || touchDevice ? 3 : 1;
+    if (shadowEvery > 1) {
+      renderer.shadowMap.autoUpdate = false;
+      renderer.shadowMap.needsUpdate = true; // 첫 프레임 그림자 보장
+    }
+    let shadowTick = 0;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.12;
@@ -1510,6 +1518,10 @@ export default function GameWorld({
         onSyncRef.current?.({ x: player.x, z: player.z, dir: player.dir });
       }
 
+      if (shadowEvery > 1) {
+        shadowTick = (shadowTick + 1) % shadowEvery;
+        if (shadowTick === 0) renderer.shadowMap.needsUpdate = true;
+      }
       renderer.render(scene, camera);
     };
     animate();

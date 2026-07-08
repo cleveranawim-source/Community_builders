@@ -1543,6 +1543,13 @@ function Game() {
             <strong>{Math.round(classBrightness.ratio * 100)}%</strong>
           </div>
         )}
+        {/* 세로 폰 전용: 화면 중앙을 가리지 않도록 길안내를 패널 속 칩으로 (CSS로 표시 전환) */}
+        {started && guide && (
+          <div className="guide-chip">
+            <Navigation size={12} style={{ transform: `rotate(${guide.angle - Math.PI / 4}rad)` }} />
+            <span>{guide.quest.title} <em>{guide.distance}m</em></span>
+          </div>
+        )}
       </section>
 
       <section className="hud top-right">
