@@ -2093,12 +2093,25 @@ meter::-webkit-meter-optimum-value {
 
 .teacher-row {
   display: grid;
-  grid-template-columns: 1.6fr .7fr .7fr .7fr .6fr 1.4fr;
+  grid-template-columns: 1.5fr .6fr .6fr .6fr .65fr .55fr .6fr .6fr 1.05fr 1.2fr;
   align-items: center;
   gap: 8px;
   padding: 13px 18px;
   border-bottom: 1px solid rgba(255,255,255,.08);
   font-weight: 800;
+}
+
+.teacher-row .pts {
+  color: #facc15;
+  font-weight: 950;
+}
+
+.teacher-row .badge-cell {
+  font-size: 14px;
+  letter-spacing: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .teacher-row.head {
@@ -2170,8 +2183,13 @@ meter::-webkit-meter-optimum-value {
     max-width: calc(100vw - 40px);
   }
 
+  /* 좁은 화면: 10열을 줄이지 말고 표를 가로 스크롤로 (모든 데이터 유지) */
+  .teacher-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
   .teacher-row {
-    grid-template-columns: 1.4fr .6fr .6fr .6fr .5fr 1.2fr;
+    min-width: 900px;
     padding: 11px 12px;
     font-size: 13px;
   }

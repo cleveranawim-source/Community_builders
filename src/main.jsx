@@ -487,10 +487,14 @@ function TeacherBoard() {
         <section className="teacher-table">
           <div className="teacher-row head">
             <span>학생</span>
+            <span>포인트</span>
             <span>미션</span>
             <span>발견</span>
             <span>장벽</span>
             <span>조각</span>
+            <span>물건</span>
+            <span>숨은곳</span>
+            <span>배지</span>
             <span>역량</span>
           </div>
           {sorted.map((row) => (
@@ -500,10 +504,16 @@ function TeacherBoard() {
                 {row.name || "이름 없음"}
                 {row.done && <PartyPopper size={14} />}
               </span>
+              <span className="pts">{pointsOf(row)}</span>
               <span>{row.solvedCount || 0}/{quests.length}</span>
               <span>{row.found || 0}/{quests.length}</span>
               <span>{row.cleared || 0}/{fogSeeds.length}</span>
               <span>💛{row.gems || 0}</span>
+              <span>📮{row.returned || 0}/{lostItems.length}</span>
+              <span>🗺️{row.eggs || 0}/{easterEggs.length}</span>
+              <span className="badge-cell" title={`획득 배지 ${row.badges || 0}/${badges.length}`}>
+                {row.badgeIcons || (row.badges ? `🏅×${row.badges}` : "—")}
+              </span>
               <span className="bars">
                 {stats.map((stat) => (
                   <i
@@ -1299,6 +1309,7 @@ function Game() {
           returned: returnedCount,
           eggs: eggCount,
           badges: earnedBadges.length,
+          badgeIcons: earnedBadges.map((b) => b.icon).join(""),
           energy,
           score,
           done: completed === quests.length,
@@ -1322,6 +1333,7 @@ function Game() {
           returned: 0,
           eggs: 0,
           badges: 0,
+          badgeIcons: "",
           energy: 0,
           score,
           done: false,
