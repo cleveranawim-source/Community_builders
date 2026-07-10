@@ -1895,10 +1895,13 @@ meter::-webkit-meter-optimum-value {
 /* ---------- 교사 화면 ---------- */
 
 .teacher-shell {
-  min-height: 100vh;
+  /* html/body가 overflow:hidden(게임용)이라 페이지 스크롤이 안 됨 →
+     교사 화면은 자기 높이를 고정하고 내부 스크롤로 전환 */
+  height: 100dvh;
   padding: clamp(18px, 4vw, 40px);
   background: #0b1626;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .teacher-head {
@@ -1982,6 +1985,103 @@ meter::-webkit-meter-optimum-value {
   color: #94a3b8;
   font-size: 12.5px;
   font-weight: 800;
+}
+
+/* 🏁 실시간 마을 레이스 — 포인트 순위를 애니메이션 바로 표시 */
+.teacher-race {
+  margin-top: 20px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 20px;
+  padding: 16px 18px;
+  background: rgba(255,255,255,.045);
+}
+
+.teacher-race h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  font-size: 17px;
+}
+
+.teacher-race h2 em {
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.race-row {
+  display: grid;
+  grid-template-columns: 34px minmax(88px, 150px) 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+}
+
+.race-rank {
+  text-align: center;
+  font-size: 17px;
+  font-weight: 900;
+  color: #cbd5e1;
+}
+
+.race-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.race-name i {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 4px;
+}
+
+.race-track {
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+  overflow: hidden;
+}
+
+.race-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  padding-right: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #38bdf8, #34d399);
+  transition: width .8s cubic-bezier(.22, 1, .36, 1);
+}
+
+.race-bar b {
+  font-size: 11.5px;
+  color: #06251d;
+}
+
+.race-row.top1 .race-bar { background: linear-gradient(90deg, #fde68a, #facc15); }
+.race-row.top2 .race-bar { background: linear-gradient(90deg, #e5e7eb, #cbd5e1); }
+.race-row.top3 .race-bar { background: linear-gradient(90deg, #fcd9b0, #f59e0b); }
+
+.race-chips {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #cbd5e1;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .race-chips { display: none; }
+  .race-row { grid-template-columns: 30px minmax(72px, 110px) 1fr; }
 }
 
 .teacher-table {

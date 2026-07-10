@@ -343,19 +343,45 @@ function TeacherBoard() {
     setActive(next);
   };
 
-  const sorted = [...rows].sort((a, b) => (b.solvedCount || 0) - (a.solvedCount || 0));
+  // 재접속으로 생긴 옛 문서 정리: 같은 닉네임은 가장 최근에 갱신된 문서만 표시
+  // (같은 기기 재접속은 cb_uid 재사용으로 원천 차단되지만, 기기 교체·과거 중복 문서 대비)
+  const students = useMemo(() => {
+    const byKey = new Map();
+    rows.forEach((row) => {
+      const key = (row.name || "").trim() || row.id;
+      const prev = byKey.get(key);
+      if (!prev || (row.updatedAt || 0) > (prev.updatedAt || 0)) byKey.set(key, row);
+    });
+    return [...byKey.values()];
+  }, [rows]);
+
+  // 모험 포인트: 미션×10 · 빛장벽×1 · 마음 조각×3 · 돌려준 물건×5 · 숨은 장소×8
+  const pointsOf = (row) =>
+    (row.solvedCount || 0) * 10 +
+    (row.cleared || 0) +
+    (row.gems || 0) * 3 +
+    (row.returned || 0) * 5 +
+    (row.eggs || 0) * 8;
+
+  const sorted = [...students].sort((a, b) => pointsOf(b) - pointsOf(a));
+  const maxPoints = Math.max(1, ...sorted.map(pointsOf));
   const avg = (key) =>
-    rows.length ? Math.round(rows.reduce((sum, row) => sum + (row.score?.[key] || 0), 0) / rows.length) : 0;
+    students.length ? Math.round(students.reduce((sum, row) => sum + (row.score?.[key] || 0), 0) / students.length) : 0;
 
   // 수업 기록용 CSV 내보내기 (엑셀 한글 호환 BOM 포함)
   const exportCsv = () => {
-    const header = ["이름", "미션 해결", "거점 발견", "빛장벽(누적)", "마음 조각", "에너지", "마음알기", "서로듣기", "관계잇기", "마을세우기", "마을 완성"];
-    const lines = sorted.map((row) => [
+    const header = ["순위", "이름", "포인트", "미션 해결", "거점 발견", "빛장벽(누적)", "마음 조각", "돌려준 물건", "숨은 장소", "배지", "에너지", "마음알기", "서로듣기", "관계잇기", "마을세우기", "마을 완성"];
+    const lines = sorted.map((row, i) => [
+      i + 1,
       row.name || "",
+      pointsOf(row),
       row.solvedCount || 0,
       row.found || 0,
       row.cleared || 0,
       row.gems || 0,
+      row.returned || 0,
+      row.eggs || 0,
+      row.badges || 0,
       row.energy || 0,
       row.score?.self || 0,
       row.score?.empathy || 0,
@@ -411,7 +437,7 @@ function TeacherBoard() {
 
       {active && (
         <section className="teacher-summary">
-          <div><strong>{rows.length}</strong><span>참여 학생</span></div>
+          <div><strong>{students.length}</strong><span>참여 학생</span></div>
           {stats.map((stat) => (
             <div key={stat.key}>
               <strong style={{ color: stat.color }}>{avg(stat.key)}</strong>
@@ -419,9 +445,38 @@ function TeacherBoard() {
             </div>
           ))}
           <div>
-            <strong>{rows.filter((row) => row.done).length}</strong>
+            <strong>{students.filter((row) => row.done).length}</strong>
             <span>마을 완성</span>
           </div>
+        </section>
+      )}
+
+      {active && sorted.length > 0 && (
+        <section className="teacher-race">
+          <h2>
+            🏁 실시간 마을 레이스
+            <em>미션×10 · 빛장벽×1 · 조각×3 · 물건×5 · 숨은장소×8</em>
+          </h2>
+          {sorted.map((row, i) => {
+            const pts = pointsOf(row);
+            return (
+              <div className={`race-row${i < 3 ? ` top${i + 1}` : ""}`} key={row.id}>
+                <span className="race-rank">{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}</span>
+                <span className="race-name">
+                  <i style={{ background: row.color || "#94a3b8" }} />
+                  {row.name || "이름 없음"}
+                </span>
+                <div className="race-track">
+                  <div className="race-bar" style={{ width: `${Math.max(6, (pts / maxPoints) * 100)}%` }}>
+                    <b>{pts}</b>
+                  </div>
+                </div>
+                <span className="race-chips" title="배지 · 마음 조각 · 돌려준 물건 · 숨은 장소">
+                  🏅{row.badges || 0} 💛{row.gems || 0} 📮{row.returned || 0} 🗺️{row.eggs || 0}
+                </span>
+              </div>
+            );
+          })}
         </section>
       )}
 
@@ -571,8 +626,24 @@ function saveResultCard({ name, room, score, energy, cleared, gems, eggs = 0, re
 
 function makeUser() {
   const index = Math.floor(Math.random() * playerPalette.length);
+  // 기기 고유 id를 재사용 — '새로 시작'해도 같은 Firestore 문서를 덮어써
+  // 교사 화면에 재접속 학생이 두 줄로 보이는 문제를 원천 차단한다.
+  let id = null;
+  try {
+    id = localStorage.getItem("cb_uid");
+  } catch {
+    // 무시
+  }
+  if (!id) {
+    id = uid();
+    try {
+      localStorage.setItem("cb_uid", id);
+    } catch {
+      // 무시
+    }
+  }
   return {
-    id: uid(),
+    id,
     color: playerPalette[index],
     hair: HAIR_OPTIONS[index % 4],
   };
@@ -1223,6 +1294,8 @@ function Game() {
           cleared: lifetimeCleared,
           gems: lifetimeGems,
           returned: returnedCount,
+          eggs: eggCount,
+          badges: earnedBadges.length,
           energy,
           score,
           done: completed === quests.length,
@@ -1231,7 +1304,7 @@ function Game() {
     }, 2500);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, user, discoveredCount, completed, lifetimeCleared, lifetimeGems, returnedCount, score]);
+  }, [profile, user, discoveredCount, completed, lifetimeCleared, lifetimeGems, returnedCount, eggCount, earnedBadges.length, score]);
 
   const joinRoom = (room, name, userInfo) => {
     import("./lib/firebase.js")
@@ -1243,6 +1316,9 @@ function Game() {
           solvedCount: 0,
           cleared: 0,
           gems: 0,
+          returned: 0,
+          eggs: 0,
+          badges: 0,
           energy: 0,
           score,
           done: false,
