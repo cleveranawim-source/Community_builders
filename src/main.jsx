@@ -451,12 +451,15 @@ function TeacherBoard() {
         </section>
       )}
 
-      {active && sorted.length > 0 && (
+      {active && (
         <section className="teacher-race">
           <h2>
             🏁 실시간 마을 레이스
             <em>미션×10 · 빛장벽×1 · 조각×3 · 물건×5 · 숨은장소×8</em>
           </h2>
+          {!sorted.length && (
+            <p className="teacher-empty">학생이 반 코드로 접속하면 실시간 순위가 여기에 표시됩니다.</p>
+          )}
           {sorted.map((row, i) => {
             const pts = pointsOf(row);
             return (
