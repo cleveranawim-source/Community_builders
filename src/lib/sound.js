@@ -4,13 +4,44 @@
 let ctx = null;
 let bgmSource = null;
 let bgmGain = null;
+let sfxGain = null;
 let bgmStarted = false;
-const BGM_VOL = 0.42; // 배경 음악 볼륨 (효과음 아래로 은은하게)
-const BGM_URL = import.meta.env.BASE_URL + "assets/audio/bgm.mp3";
+const BGM_URL = import.meta.env.BASE_URL + "assets/audio/bgm.wav";
+
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+const loadNum = (key, dflt) => {
+  try {
+    const v = parseFloat(localStorage.getItem(key));
+    return Number.isFinite(v) ? clamp01(v) : dflt;
+  } catch {
+    return dflt;
+  }
+};
+
 let muted = typeof localStorage !== "undefined" && localStorage.getItem("cb_muted") === "1";
+let bgmVolume = loadNum("cb_bgm_vol", 0.5); // 음악 볼륨 (0~1)
+let sfxVolume = loadNum("cb_sfx_vol", 0.9); // 효과음 볼륨 (0~1)
 
 export function getMuted() {
   return muted;
+}
+export function getBgmVolume() {
+  return bgmVolume;
+}
+export function getSfxVolume() {
+  return sfxVolume;
+}
+
+function applyBgmGain(fade = 0.3) {
+  if (!bgmGain || !ctx) return;
+  const now = ctx.currentTime;
+  bgmGain.gain.cancelScheduledValues(now);
+  bgmGain.gain.setValueAtTime(Math.max(0.0001, bgmGain.gain.value), now);
+  bgmGain.gain.linearRampToValueAtTime(muted ? 0.0001 : Math.max(0.0001, bgmVolume), now + fade);
+}
+function applySfxGain() {
+  if (!sfxGain || !ctx) return;
+  sfxGain.gain.setValueAtTime(muted ? 0 : sfxVolume, ctx.currentTime);
 }
 
 export function setMuted(next) {
@@ -20,13 +51,29 @@ export function setMuted(next) {
   } catch {
     // 사파리 프라이빗 모드 등은 무시
   }
-  // BGM은 부드럽게 페이드 (효과음은 tone()의 muted 게이트로 즉시 무음)
-  if (bgmGain && ctx) {
-    const now = ctx.currentTime;
-    bgmGain.gain.cancelScheduledValues(now);
-    bgmGain.gain.setValueAtTime(Math.max(0.0001, bgmGain.gain.value), now);
-    bgmGain.gain.linearRampToValueAtTime(next ? 0.0001 : BGM_VOL, now + 0.35);
+  applyBgmGain(0.35);
+  applySfxGain();
+}
+
+export function setBgmVolume(v) {
+  bgmVolume = clamp01(v);
+  try {
+    localStorage.setItem("cb_bgm_vol", String(bgmVolume));
+  } catch {
+    // 무시
   }
+  applyBgmGain(0.08);
+}
+
+export function setSfxVolume(v) {
+  sfxVolume = clamp01(v);
+  try {
+    localStorage.setItem("cb_sfx_vol", String(sfxVolume));
+  } catch {
+    // 무시
+  }
+  applySfxGain();
+  sfx.pickup(); // 새 볼륨을 바로 들려준다
 }
 
 export function initAudio() {
@@ -34,6 +81,10 @@ export function initAudio() {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
     ctx = new AudioCtx();
+    // 효과음 전용 게인 (모든 tone이 여기로 → 볼륨 한 곳에서 제어)
+    sfxGain = ctx.createGain();
+    sfxGain.gain.value = muted ? 0 : sfxVolume;
+    sfxGain.connect(ctx.destination);
     startBgm();
     // 백그라운드 탭에서는 오디오 정지 (발열·배터리 절약)
     document.addEventListener("visibilitychange", () => {
@@ -46,7 +97,7 @@ export function initAudio() {
 }
 
 function tone(freq, dur, { type = "sine", vol = 0.12, when = 0, sweep = null } = {}) {
-  if (!ctx || muted) return;
+  if (!ctx || muted || !sfxGain) return;
   const t0 = ctx.currentTime + when;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -56,7 +107,7 @@ function tone(freq, dur, { type = "sine", vol = 0.12, when = 0, sweep = null } =
   gain.gain.setValueAtTime(0.0001, t0);
   gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.015);
   gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  osc.connect(gain).connect(ctx.destination);
+  osc.connect(gain).connect(sfxGain);
   osc.start(t0);
   osc.stop(t0 + dur + 0.05);
 }
@@ -101,7 +152,7 @@ async function startBgm() {
     const res = await fetch(BGM_URL);
     const audioBuffer = await ctx.decodeAudioData(await res.arrayBuffer());
     bgmGain = ctx.createGain();
-    bgmGain.gain.value = muted ? 0.0001 : BGM_VOL;
+    bgmGain.gain.value = muted ? 0.0001 : Math.max(0.0001, bgmVolume);
     bgmGain.connect(ctx.destination);
     bgmSource = ctx.createBufferSource();
     bgmSource.buffer = audioBuffer;

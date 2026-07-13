@@ -28,7 +28,7 @@ import {
   badges,
 } from "./data/index.js";
 import { uid, josa } from "./lib/utils.js";
-import { initAudio, sfx, getMuted, setMuted } from "./lib/sound.js";
+import { initAudio, sfx, getMuted, setMuted, getBgmVolume, getSfxVolume, setBgmVolume, setSfxVolume } from "./lib/sound.js";
 import "./styles.css";
 
 const HAIR_OPTIONS = [0x25314d, 0x3b2a20, 0x30223d, 0x2f2430];
@@ -734,6 +734,8 @@ function Game() {
   const boostUntilRef = useRef(0);
   const [boostLeft, setBoostLeft] = useState(0);
   const [muted, setMutedState] = useState(getMuted);
+  const [bgmVol, setBgmVol] = useState(getBgmVolume);
+  const [sfxVol, setSfxVol] = useState(getSfxVolume);
   const [confirmReset, setConfirmReset] = useState(false);
   // 점수 상승 팝업 (장벽 파괴 시 "+N"이 화면에 떠오름)
   const [scorePops, setScorePops] = useState([]);
@@ -1942,7 +1944,26 @@ function Game() {
         <section className="dialog-layer" onClick={() => setConfirmReset(false)}>
           <div className="confirm-box" onClick={(event) => event.stopPropagation()}>
             <h3>잠깐 멈췄어요</h3>
-            <p>계속할지, 홈으로 나갈지, 처음부터 다시 시작할지 골라 주세요.</p>
+
+            <div className="sound-settings">
+              <label className="sound-row">
+                <span>🎵 음악</span>
+                <input
+                  type="range" min="0" max="1" step="0.05" value={bgmVol}
+                  onChange={(event) => { const v = parseFloat(event.target.value); setBgmVol(v); setBgmVolume(v); }}
+                />
+                <em>{Math.round(bgmVol * 100)}</em>
+              </label>
+              <label className="sound-row">
+                <span>🔔 효과음</span>
+                <input
+                  type="range" min="0" max="1" step="0.05" value={sfxVol}
+                  onChange={(event) => { const v = parseFloat(event.target.value); setSfxVol(v); setSfxVolume(v); }}
+                />
+                <em>{Math.round(sfxVol * 100)}</em>
+              </label>
+            </div>
+
             <div className="confirm-menu">
               <button className="primary" onClick={() => setConfirmReset(false)}>계속하기</button>
               <button className="ghost" onClick={goHome}>홈으로 나가기</button>

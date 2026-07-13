@@ -702,6 +702,59 @@ meter::-webkit-meter-optimum-value {
   word-break: keep-all;
 }
 
+/* 음악·효과음 볼륨 슬라이더 (일시정지 메뉴 안) */
+.sound-settings {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255,255,255,.06);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sound-row {
+  display: grid;
+  grid-template-columns: 78px 1fr 34px;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 900;
+  color: #e2e8f0;
+}
+.sound-row em {
+  font-style: normal;
+  text-align: right;
+  font-size: 13px;
+  color: #94a3b8;
+}
+.sound-row input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.18);
+  outline: none;
+}
+.sound-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, #bbf7d0, #34d399);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,.35);
+}
+.sound-row input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: #34d399;
+  cursor: pointer;
+}
+
 .confirm-menu {
   display: flex;
   flex-direction: column;
