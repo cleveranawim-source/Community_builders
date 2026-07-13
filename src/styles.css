@@ -1339,6 +1339,22 @@ meter::-webkit-meter-optimum-value {
   font-weight: 950;
 }
 
+/* 무한 정화 모드 칩 (완주 후 표시) */
+.purify-chip {
+  border-radius: 999px;
+  padding: 7px 11px;
+  color: #0f172a;
+  background: linear-gradient(135deg, #a78bfa, #c4b5fd);
+  font-size: 12px;
+  font-weight: 950;
+  box-shadow: 0 0 0 2px rgba(167,139,250,.35);
+  animation: boost-pulse .9s ease-in-out infinite alternate;
+}
+
+.race-chips .purify-tag {
+  color: #c4b5fd;
+}
+
 .brightness-chip {
   display: flex;
   align-items: center;
@@ -2145,7 +2161,7 @@ meter::-webkit-meter-optimum-value {
 
 .teacher-row {
   display: grid;
-  grid-template-columns: 1.5fr .6fr .6fr .6fr .65fr .55fr .6fr .6fr 1.05fr 1.2fr;
+  grid-template-columns: 1.5fr .55fr .55fr .55fr .6fr .5fr .55fr .55fr .95fr .5fr 1.15fr;
   align-items: center;
   gap: 8px;
   padding: 13px 18px;
@@ -2241,7 +2257,7 @@ meter::-webkit-meter-optimum-value {
     -webkit-overflow-scrolling: touch;
   }
   .teacher-row {
-    min-width: 900px;
+    min-width: 980px;
     padding: 11px 12px;
     font-size: 13px;
   }

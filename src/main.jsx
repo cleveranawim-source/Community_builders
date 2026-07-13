@@ -372,7 +372,7 @@ function TeacherBoard() {
 
   // 수업 기록용 CSV 내보내기 (엑셀 한글 호환 BOM 포함)
   const exportCsv = () => {
-    const header = ["순위", "이름", "포인트", "미션 해결", "거점 발견", "빛장벽(누적)", "마음 조각", "돌려준 물건", "숨은 장소", "배지", "에너지", "마음알기", "서로듣기", "관계잇기", "마을세우기", "마을 완성"];
+    const header = ["순위", "이름", "포인트", "미션 해결", "거점 발견", "빛장벽(누적)", "마음 조각", "돌려준 물건", "숨은 장소", "배지", "정화(완주후)", "에너지", "마음알기", "서로듣기", "관계잇기", "마을세우기", "마을 완성"];
     const lines = sorted.map((row, i) => [
       i + 1,
       row.name || "",
@@ -384,6 +384,7 @@ function TeacherBoard() {
       row.returned || 0,
       row.eggs || 0,
       row.badges || 0,
+      row.purified || 0,
       row.energy || 0,
       row.score?.self || 0,
       row.score?.empathy || 0,
@@ -476,8 +477,9 @@ function TeacherBoard() {
                     <b>{pts}</b>
                   </div>
                 </div>
-                <span className="race-chips" title="배지 · 마음 조각 · 돌려준 물건 · 숨은 장소">
+                <span className="race-chips" title="배지 · 마음 조각 · 돌려준 물건 · 숨은 장소 · 정화(완주 후)">
                   🏅{row.badges || 0} 💛{row.gems || 0} 📮{row.returned || 0} 🗺️{row.eggs || 0}
+                  {row.purified > 0 && <b className="purify-tag"> ⚡{row.purified}</b>}
                 </span>
               </div>
             );
@@ -497,6 +499,7 @@ function TeacherBoard() {
             <span>물건</span>
             <span>숨은곳</span>
             <span>배지</span>
+            <span title="완주 후 되살아난 장벽 정화 횟수 (순위와 별개 보너스)">정화</span>
             <span>역량</span>
           </div>
           {sorted.map((row) => (
@@ -516,6 +519,7 @@ function TeacherBoard() {
               <span className="badge-cell" title={`획득 배지 ${row.badges || 0}/${badges.length}`}>
                 {row.badgeIcons || (row.badges ? `🏅×${row.badges}` : "—")}
               </span>
+              <span className="pts">{row.purified > 0 ? `⚡${row.purified}` : "—"}</span>
               <span className="bars">
                 {stats.map((stat) => (
                   <i
@@ -722,6 +726,8 @@ function Game() {
   // 누적 기록: '다시 시작'해도 줄지 않는다 (반 밝기·교사 화면용)
   const [lifetimeCleared, setLifetimeCleared] = useState(0);
   const [lifetimeGems, setLifetimeGems] = useState(0);
+  // 무한 정화: 완주(16미션) 후 되살아난 장벽을 부순 누적 횟수 (메인 점수와 별개 보너스 스탯)
+  const [purified, setPurified] = useState(0);
   const prevClearedRef = useRef(0);
   const prevGemsRef = useRef(0);
   // 반짝 부스트: 만료 시각(Date.now 기준)
@@ -766,6 +772,10 @@ function Game() {
   const eggCount = Object.values(foundEggs).filter(Boolean).length;
   const returnedCount = lost.filter((l) => l.status === "returned").length;
   const endingOpen = started && completed === quests.length && !endingDismissed;
+  // 무한 정화 모드: 16미션 완주 + 엔딩을 닫고(계속 탐험) 나면 활성 — 빌런이 계속 안개를 되살린다
+  const endlessMode = started && completed === quests.length && endingDismissed;
+  const endlessModeRef = useRef(false);
+  endlessModeRef.current = endlessMode;
 
   // 도감용 수집 현황 + 배지 획득 판정
   const codexStats = {
@@ -809,10 +819,23 @@ function Game() {
   useEffect(() => {
     const prev = prevClearedRef.current;
     if (clearedFogCount > prev) {
-      setLifetimeCleared((v) => v + clearedFogCount - prev);
+      const delta = clearedFogCount - prev;
+      setLifetimeCleared((v) => v + delta);
+      // 완주 후(무한 정화 모드)에 부순 장벽만 '정화 횟수'로 따로 센다
+      if (endlessModeRef.current) setPurified((v) => v + delta);
     }
     prevClearedRef.current = clearedFogCount;
   }, [clearedFogCount]);
+
+  // 무한 정화 모드 진입 안내 (한 번만)
+  const endlessAnnouncedRef = useRef(false);
+  useEffect(() => {
+    if (endlessMode && !endlessAnnouncedRef.current) {
+      endlessAnnouncedRef.current = true;
+      setToast("⚡ 무한 정화 모드! 안개 빌런이 계속 나타나요 — 마음껏 정화해 보세요!");
+    }
+    if (!endlessMode) endlessAnnouncedRef.current = false;
+  }, [endlessMode]);
 
   if (import.meta.env.DEV) {
     globalThis.__cbDebug = { ...globalThis.__cbDebug, lifetimeCleared, lifetimeGems, prevClearedRef, projectilesRef, fogsRef, playerHud, easterEggs, foundEggs, villainsRef, worldProgressRef, setEggPopup, lostItems, lost, carrying, lostRef, carryingRef };
@@ -858,6 +881,7 @@ function Game() {
         endingDismissed,
         lifetimeCleared,
         lifetimeGems,
+        purified,
         pos: { x: playerRef.current.x, z: playerRef.current.z },
       }));
     } catch {
@@ -869,7 +893,7 @@ function Game() {
     if (!started || !user) return undefined;
     const timer = window.setTimeout(() => saveNowRef.current(), 800);
     return () => window.clearTimeout(timer);
-  }, [started, user, profile, solved, answered, discovered, fogs, treasures, foundEggs, lost, energy, score, endingDismissed, lifetimeCleared, lifetimeGems]);
+  }, [started, user, profile, solved, answered, discovered, fogs, treasures, foundEggs, lost, energy, score, endingDismissed, lifetimeCleared, lifetimeGems, purified]);
 
   useEffect(() => {
     if (!started || !user) return undefined;
@@ -1213,17 +1237,30 @@ function Game() {
     const iv = window.setInterval(() => {
       const now = Date.now();
       const prog = worldProgressRef.current;
-      // 진행도에 따라 활동하는 빌런 수를 줄인다 (0.55→2마리, 0.75→1마리, 0.9→0마리)
-      const allowedActive = prog >= 0.9 ? 0 : prog >= 0.75 ? 1 : prog >= 0.55 ? 2 : 3;
+      // 진행도에 따라 활동하는 빌런 수를 줄인다 (0.55→2마리, 0.75→1마리, 0.9→0마리).
+      // 무한 정화 모드(완주 후)에는 2마리를 계속 유지해 장벽을 끝없이 되살린다.
+      const allowedActive = endlessModeRef.current
+        ? 2
+        : prog >= 0.9 ? 0 : prog >= 0.75 ? 1 : prog >= 0.55 ? 2 : 3;
       const villains = villainsRef.current;
       let activeCount = villains.filter((v) => v.active).length;
       villains.forEach((v) => {
         if (v.active && activeCount > allowedActive) {
           v.active = false;
           activeCount -= 1;
-          setToast("🌈 마을이 밝아지자 안개 빌런 하나가 스르르 사라졌어요!");
+          if (!endlessModeRef.current) setToast("🌈 마을이 밝아지자 안개 빌런 하나가 스르르 사라졌어요!");
         }
       });
+      // 무한 정화 모드: 필요하면 사라졌던 빌런을 다시 깨운다
+      if (endlessModeRef.current) {
+        villains.forEach((v) => {
+          if (!v.active && activeCount < allowedActive) {
+            v.active = true;
+            v.stunUntil = 0;
+            activeCount += 1;
+          }
+        });
+      }
 
       const revivedIds = [];
       const px = playerRef.current.x;
@@ -1331,6 +1368,7 @@ function Game() {
           eggs: eggCount,
           badges: earnedBadges.length,
           badgeIcons: earnedBadges.map((b) => b.icon).join(""),
+          purified,
           energy,
           score,
           done: completed === quests.length,
@@ -1339,7 +1377,7 @@ function Game() {
     }, 2500);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, user, discoveredCount, completed, lifetimeCleared, lifetimeGems, returnedCount, eggCount, earnedBadges.length, score]);
+  }, [profile, user, discoveredCount, completed, lifetimeCleared, lifetimeGems, returnedCount, eggCount, earnedBadges.length, purified, score]);
 
   const joinRoom = (room, name, userInfo) => {
     import("./lib/firebase.js")
@@ -1355,6 +1393,7 @@ function Game() {
           eggs: 0,
           badges: 0,
           badgeIcons: "",
+          purified: 0,
           energy: 0,
           score,
           done: false,
@@ -1397,6 +1436,7 @@ function Game() {
     prevGemsRef.current = restoredTreasures.filter((t) => t.found).length;
     setLifetimeCleared(save.lifetimeCleared ?? prevClearedRef.current);
     setLifetimeGems(save.lifetimeGems ?? prevGemsRef.current);
+    setPurified(save.purified ?? 0);
     playerRef.current = {
       x: save.pos?.x ?? spawn.x,
       z: save.pos?.z ?? spawn.z,
@@ -1467,6 +1507,7 @@ function Game() {
     setProjectiles([]);
     projectilesRef.current = [];
     setEnergy(0);
+    setPurified(0);
     setScore({ self: 20, empathy: 20, relation: 20, community: 20 });
     setEndingDismissed(false);
     setToast("공동체 월드가 다시 시작되었습니다.");
@@ -1631,6 +1672,11 @@ function Game() {
           <div className="treasure-chip" title="숨은 마음 조각 (맵 곳곳에 숨어 있어요)">
             💛 {treasureCount}/{treasureSeeds.length}
           </div>
+          {endlessMode && (
+            <div className="purify-chip" title="완주 후 되살아난 장벽을 정화한 횟수">
+              ⚡ 정화 {purified}
+            </div>
+          )}
           {profile?.room && <div className="room-chip small">반 {profile.room}</div>}
           <div className="sys-buttons">
             <button className="icon-chip" onClick={toggleMuted} title={muted ? "소리 켜기" : "소리 끄기"} aria-label={muted ? "소리 켜기" : "소리 끄기"}>
