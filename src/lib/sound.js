@@ -1,8 +1,12 @@
-// WebAudio 합성 사운드 — 파일 없이 효과음·오르골 BGM을 만든다.
+// WebAudio: 효과음은 합성, BGM은 음원 파일을 gapless 루프로 재생한다.
 // iOS 정책상 첫 사용자 제스처(모험 시작 버튼)에서 initAudio()를 호출해야 한다.
 
 let ctx = null;
-let bgmTimer = null;
+let bgmSource = null;
+let bgmGain = null;
+let bgmStarted = false;
+const BGM_VOL = 0.42; // 배경 음악 볼륨 (효과음 아래로 은은하게)
+const BGM_URL = import.meta.env.BASE_URL + "assets/audio/bgm.mp3";
 let muted = typeof localStorage !== "undefined" && localStorage.getItem("cb_muted") === "1";
 
 export function getMuted() {
@@ -16,6 +20,13 @@ export function setMuted(next) {
   } catch {
     // 사파리 프라이빗 모드 등은 무시
   }
+  // BGM은 부드럽게 페이드 (효과음은 tone()의 muted 게이트로 즉시 무음)
+  if (bgmGain && ctx) {
+    const now = ctx.currentTime;
+    bgmGain.gain.cancelScheduledValues(now);
+    bgmGain.gain.setValueAtTime(Math.max(0.0001, bgmGain.gain.value), now);
+    bgmGain.gain.linearRampToValueAtTime(next ? 0.0001 : BGM_VOL, now + 0.35);
+  }
 }
 
 export function initAudio() {
@@ -24,8 +35,14 @@ export function initAudio() {
     if (!AudioCtx) return;
     ctx = new AudioCtx();
     startBgm();
+    // 백그라운드 탭에서는 오디오 정지 (발열·배터리 절약)
+    document.addEventListener("visibilitychange", () => {
+      if (!ctx) return;
+      if (document.hidden) ctx.suspend().catch(() => {});
+      else ctx.resume().catch(() => {});
+    });
   }
-  if (ctx.state === "suspended") ctx.resume().catch(() => {});
+  if (ctx.state === "suspended" && !document.hidden) ctx.resume().catch(() => {});
 }
 
 function tone(freq, dur, { type = "sine", vol = 0.12, when = 0, sweep = null } = {}) {
@@ -75,16 +92,23 @@ export const sfx = {
   },
 };
 
-// 잔잔한 펜타토닉 오르골 멜로디 (저음량 루프)
-const BGM_MELODY = [523, 659, 784, 659, 587, 784, 880, 784, 659, 784, 1046, 880, 784, 659, 587, 523];
-
-function startBgm() {
-  if (bgmTimer) return;
-  let step = 0;
-  bgmTimer = setInterval(() => {
-    if (!ctx || muted || document.hidden) return;
-    tone(BGM_MELODY[step % BGM_MELODY.length], 1.3, { vol: 0.035 });
-    if (step % 4 === 0) tone(BGM_MELODY[step % BGM_MELODY.length] / 2, 1.6, { vol: 0.022 });
-    step += 1;
-  }, 1400);
+// BGM: 음원 파일을 AudioBufferSourceNode의 loop로 재생 → 샘플 정확한 gapless 루프.
+// 파일 자체가 acrossfade로 이음새를 제거한 seamless 루프라 끊김 없이 계속 돈다.
+async function startBgm() {
+  if (bgmStarted || !ctx) return;
+  bgmStarted = true;
+  try {
+    const res = await fetch(BGM_URL);
+    const audioBuffer = await ctx.decodeAudioData(await res.arrayBuffer());
+    bgmGain = ctx.createGain();
+    bgmGain.gain.value = muted ? 0.0001 : BGM_VOL;
+    bgmGain.connect(ctx.destination);
+    bgmSource = ctx.createBufferSource();
+    bgmSource.buffer = audioBuffer;
+    bgmSource.loop = true;
+    bgmSource.connect(bgmGain);
+    bgmSource.start(0);
+  } catch {
+    bgmStarted = false; // 로드 실패 시 다음 initAudio에서 재시도
+  }
 }
