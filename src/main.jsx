@@ -355,10 +355,12 @@ function TeacherBoard() {
     return [...byKey.values()];
   }, [rows]);
 
+  // 장벽 누적은 빌런 재안개로 144를 넘을 수 있어 표시·점수는 144로 상한
+  const clearedOf = (row) => Math.min(row.cleared || 0, fogSeeds.length);
   // 모험 포인트: 미션×10 · 빛장벽×1 · 마음 조각×3 · 돌려준 물건×5 · 숨은 장소×8
   const pointsOf = (row) =>
     (row.solvedCount || 0) * 10 +
-    (row.cleared || 0) +
+    clearedOf(row) +
     (row.gems || 0) * 3 +
     (row.returned || 0) * 5 +
     (row.eggs || 0) * 8;
@@ -377,7 +379,7 @@ function TeacherBoard() {
       pointsOf(row),
       row.solvedCount || 0,
       row.found || 0,
-      row.cleared || 0,
+      clearedOf(row),
       row.gems || 0,
       row.returned || 0,
       row.eggs || 0,
@@ -507,7 +509,7 @@ function TeacherBoard() {
               <span className="pts">{pointsOf(row)}</span>
               <span>{row.solvedCount || 0}/{quests.length}</span>
               <span>{row.found || 0}/{quests.length}</span>
-              <span>{row.cleared || 0}/{fogSeeds.length}</span>
+              <span>{clearedOf(row)}/{fogSeeds.length}</span>
               <span>💛{row.gems || 0}</span>
               <span>📮{row.returned || 0}/{lostItems.length}</span>
               <span>🗺️{row.eggs || 0}/{easterEggs.length}</span>
@@ -661,6 +663,18 @@ function makeUser() {
     hair: HAIR_OPTIONS[index % 4],
   };
 }
+
+// 이스터에그 발견 색종이 — 리렌더마다 값이 바뀌지 않도록 고정 배열(결정론적)
+const EGG_CONFETTI = Array.from({ length: 34 }, (_, i) => ({
+  left: (i * 41 + 5) % 100,
+  delay: (i % 12) * 0.045,
+  dur: 1.5 + ((i * 7) % 6) * 0.16,
+  rot: (i * 53) % 360,
+  drift: ((i % 7) - 3) * 16,
+  size: 8 + (i % 3) * 3,
+  round: i % 2 === 0,
+  slot: i % 4,
+}));
 
 function Game() {
   const [profile, setProfile] = useState(null);
@@ -938,7 +952,7 @@ function Game() {
 
     // 숨은 이스터에그 발견 → 전용 축하 팝업
     const newEgg = easterEggs.find(
-      (egg) => !foundEggs[egg.id] && Math.hypot(egg.x - playerHud.x, egg.z - playerHud.z) < 2.2
+      (egg) => !foundEggs[egg.id] && Math.hypot(egg.x - playerHud.x, egg.z - playerHud.z) < 1.8
     );
     if (newEgg) {
       const total = Object.values(foundEggs).filter(Boolean).length + 1;
@@ -1212,10 +1226,17 @@ function Game() {
       });
 
       const revivedIds = [];
+      const px = playerRef.current.x;
+      const pz = playerRef.current.z;
       villains.forEach((v) => {
         if (!v.active || v.stunUntil > now) return;
         const target = fogsRef.current.find(
-          (f) => f.cleared && !revivedIds.includes(f.id) && Math.hypot(f.x - v.x, f.z - v.z) < 11
+          (f) =>
+            f.cleared &&
+            !revivedIds.includes(f.id) &&
+            Math.hypot(f.x - v.x, f.z - v.z) < 11 &&
+            // 플레이어 발밑·바로 옆엔 되살리지 않는다 (가둠 방지)
+            Math.hypot(f.x - px, f.z - pz) > 4.5
         );
         if (target) revivedIds.push(target.id);
       });
@@ -1819,7 +1840,31 @@ function Game() {
       )}
 
       {eggPopup && (
-        <section className="dialog-layer" onClick={() => setEggPopup(null)}>
+        <section
+          className="dialog-layer egg-layer"
+          onClick={() => setEggPopup(null)}
+          style={{ "--egg-color": eggPopup.color || "#ffd98a" }}
+        >
+          <div className="egg-burst" aria-hidden="true">
+            <div className="egg-flash" />
+            <div className="egg-ring" />
+            {EGG_CONFETTI.map((c, i) => (
+              <span
+                key={i}
+                className={c.round ? "confetti round" : "confetti"}
+                style={{
+                  left: `${c.left}%`,
+                  width: c.size,
+                  height: c.round ? c.size : c.size * 1.6,
+                  background: ["var(--egg-color)", "#ffffff", "#facc15", "#3FE5A0"][c.slot],
+                  "--drift": `${c.drift}px`,
+                  "--rot": `${c.rot}deg`,
+                  animationDelay: `${c.delay}s`,
+                  animationDuration: `${c.dur}s`,
+                }}
+              />
+            ))}
+          </div>
           <div className="egg-popup" onClick={(event) => event.stopPropagation()}>
             <div className="egg-popup-glow" aria-hidden="true" />
             <div className="egg-popup-icon">{eggPopup.icon}</div>

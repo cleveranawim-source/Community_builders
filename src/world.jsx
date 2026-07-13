@@ -1115,15 +1115,15 @@ export default function GameWorld({
     const eggMarkers = [];
     easterEggs.forEach((egg) => {
       const g = new THREE.Group();
-      // 더 작고 은은하게 — 가까이 가야 눈에 띈다
+      // 아주 작고 희미하게 — 바로 앞까지 가야 겨우 반짝임이 보인다 (찾기 어렵게)
       const sparkle = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.16, 0),
-        mat(0xfff2b0, { emissive: new THREE.Color(0xffe08a), emissiveIntensity: 0.55, roughness: 0.25, transparent: true, opacity: 0.55 })
+        new THREE.OctahedronGeometry(0.11, 0),
+        mat(0xfff2b0, { emissive: new THREE.Color(0xffe08a), emissiveIntensity: 0.4, roughness: 0.3, transparent: true, opacity: 0.4 })
       );
-      sparkle.position.y = 0.62;
+      sparkle.position.y = 0.5;
       const halo = new THREE.Mesh(
-        new THREE.RingGeometry(0.28, 0.34, 20),
-        new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.18, side: THREE.DoubleSide })
+        new THREE.RingGeometry(0.2, 0.25, 18),
+        new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.1, side: THREE.DoubleSide })
       );
       halo.rotation.x = -Math.PI / 2;
       halo.position.y = 0.05;
@@ -1256,7 +1256,24 @@ export default function GameWorld({
           if (bump) {
             // 이동만 멈추고 토스트는 띄우지 않는다
           } else if (blocked) {
-            if (now - lastBlockedToast > 1600) {
+            // 갇힘 방지: 빌런이 발밑 장벽을 되살려 끼었을 때, 겹친 장벽에서
+            // '멀어지는' 이동은 허용해 탈출시킨다 (그렇지 않으면 사방이 막혀 못 나옴)
+            const overlap = fogsRef.current.filter(
+              (fog) => !fog.cleared && Math.hypot(fog.x - player.x, fog.z - player.z) < 1.75
+            );
+            let escaping = false;
+            if (overlap.length) {
+              const nearest = overlap.reduce((a, b) =>
+                Math.hypot(b.x - player.x, b.z - player.z) < Math.hypot(a.x - player.x, a.z - player.z) ? b : a
+              );
+              escaping =
+                Math.hypot(nearest.x - tx, nearest.z - tz) >
+                Math.hypot(nearest.x - player.x, nearest.z - player.z);
+            }
+            if (escaping) {
+              player.x = tx;
+              player.z = tz;
+            } else if (now - lastBlockedToast > 1600) {
               lastBlockedToast = now;
               onBlockedRef.current?.();
             }
@@ -1298,7 +1315,7 @@ export default function GameWorld({
         m.group.visible = !found;
         if (!found) {
           m.sparkle.rotation.y += 0.03;
-          m.sparkle.position.y = 0.9 + Math.sin(t * 2 + i) * 0.15;
+          m.sparkle.position.y = 0.5 + Math.sin(t * 2 + i) * 0.1;
         }
       });
 
