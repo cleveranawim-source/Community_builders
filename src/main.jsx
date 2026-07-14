@@ -367,7 +367,20 @@ function TeacherBoard() {
     (row.returned || 0) * 5 +
     (row.eggs || 0) * 8;
 
-  const sorted = [...students].sort((a, b) => pointsOf(b) - pointsOf(a));
+  // 완주 순번: 마을 완성(16미션) 시각이 이른 순으로 1·2·3… (동점 순위의 타이브레이크에도 사용)
+  const finishTime = (row) => row.completedAt || Infinity;
+  const finishOrder = new Map(
+    students
+      .filter((r) => r.completedAt)
+      .sort((a, b) => a.completedAt - b.completedAt)
+      .map((r, i) => [r.id, i + 1]),
+  );
+  // 순위: 포인트 우선, 동점이면 먼저 완주한 학생이 앞선다 (440점 만점 동점 → 완주 시간순)
+  const sorted = [...students].sort((a, b) => {
+    const dp = pointsOf(b) - pointsOf(a);
+    if (dp !== 0) return dp;
+    return finishTime(a) - finishTime(b);
+  });
   const maxPoints = Math.max(1, ...sorted.map(pointsOf));
   // 반 전체 정화 에너지 = 완주자들이 정화한 장벽 총합 (반별 대결용)
   const classPurified = students.reduce((sum, r) => sum + (r.purified || 0), 0);
@@ -392,11 +405,13 @@ function TeacherBoard() {
 
   // 수업 기록용 CSV 내보내기 (엑셀 한글 호환 BOM 포함)
   const exportCsv = () => {
-    const header = ["순위", "이름", "포인트", "미션 해결", "거점 발견", "빛장벽(누적)", "마음 조각", "돌려준 물건", "숨은 장소", "배지", "정화(완주후)", "에너지", "마음알기", "서로듣기", "관계잇기", "마을세우기", "마을 완성"];
+    const header = ["순위", "이름", "포인트", "완주 순번", "완주 시각", "미션 해결", "거점 발견", "빛장벽(누적)", "마음 조각", "돌려준 물건", "숨은 장소", "배지", "정화(완주후)", "에너지", "마음알기", "서로듣기", "관계잇기", "마을세우기", "마을 완성"];
     const lines = sorted.map((row, i) => [
       i + 1,
       row.name || "",
       pointsOf(row),
+      finishOrder.get(row.id) || "",
+      row.completedAt ? new Date(row.completedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "",
       row.solvedCount || 0,
       row.found || 0,
       clearedOf(row),
@@ -508,7 +523,7 @@ function TeacherBoard() {
         <section className="teacher-race">
           <h2>
             🏁 실시간 마을 레이스
-            <em>미션×10 · 빛장벽×1 · 조각×3 · 물건×5 · 숨은장소×8</em>
+            <em>미션×10 · 빛장벽×1 · 조각×3 · 물건×5 · 숨은장소×8 · 동점은 먼저 완주한 순</em>
           </h2>
           {!sorted.length && (
             <p className="teacher-empty">학생이 반 코드로 접속하면 실시간 순위가 여기에 표시됩니다.</p>
@@ -521,6 +536,9 @@ function TeacherBoard() {
                 <span className="race-name">
                   <i style={{ background: row.color || "#94a3b8" }} />
                   {row.name || "이름 없음"}
+                  {finishOrder.has(row.id) && (
+                    <b className="finish-badge" title="마을 완성(16미션 완주) 순번">🏁{finishOrder.get(row.id)}</b>
+                  )}
                 </span>
                 <div className="race-track">
                   <div className="race-bar" style={{ width: `${Math.max(6, (pts / maxPoints) * 100)}%` }}>
@@ -781,6 +799,8 @@ function Game() {
   const [lifetimeGems, setLifetimeGems] = useState(0);
   // 무한 정화: 완주(16미션) 후 되살아난 장벽을 부순 누적 횟수 (메인 점수와 별개 보너스 스탯)
   const [purified, setPurified] = useState(0);
+  // 마을 완성(16미션 완주) 시각 — 점수 동점 시 '먼저 완주한 순서'로 순위를 가른다 (한 번만 기록)
+  const [completedAt, setCompletedAt] = useState(null);
   // 획득한 배지 id (한 번 얻으면 유지 — 장벽 재생성으로 조건이 잠깐 깨져도 유지)
   const [earnedIds, setEarnedIds] = useState({});
   const prevClearedRef = useRef(0);
@@ -856,6 +876,11 @@ function Game() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [completed, clearedFogCount, treasureCount, eggCount, returnedCount]);
+
+  // 마을 완성(16미션) 시각을 딱 한 번 기록 — 교사 화면에서 동점 시 '먼저 완주한 순서'로 순위를 가른다
+  useEffect(() => {
+    if (started && completed === quests.length && !completedAt) setCompletedAt(Date.now());
+  }, [started, completed, completedAt]);
 
   runningRef.current = started && !activeQuest && !endingOpen;
 
@@ -949,6 +974,7 @@ function Game() {
         lifetimeCleared,
         lifetimeGems,
         purified,
+        completedAt,
         earnedIds,
         pos: { x: playerRef.current.x, z: playerRef.current.z },
       }));
@@ -961,7 +987,7 @@ function Game() {
     if (!started || !user) return undefined;
     const timer = window.setTimeout(() => saveNowRef.current(), 800);
     return () => window.clearTimeout(timer);
-  }, [started, user, profile, solved, answered, discovered, fogs, treasures, foundEggs, lost, energy, score, endingDismissed, lifetimeCleared, lifetimeGems, purified, earnedIds]);
+  }, [started, user, profile, solved, answered, discovered, fogs, treasures, foundEggs, lost, energy, score, endingDismissed, lifetimeCleared, lifetimeGems, purified, completedAt, earnedIds]);
 
   useEffect(() => {
     if (!started || !user) return undefined;
@@ -1437,6 +1463,7 @@ function Game() {
           badges: earnedBadges.length,
           badgeIcons: earnedBadges.map((b) => b.icon).join(""),
           purified,
+          completedAt: completedAt ?? null,
           energy,
           score,
           done: completed === quests.length,
@@ -1445,7 +1472,7 @@ function Game() {
     }, 2500);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, user, discoveredCount, completed, lifetimeCleared, lifetimeGems, returnedCount, eggCount, earnedBadges.length, purified, score]);
+  }, [profile, user, discoveredCount, completed, lifetimeCleared, lifetimeGems, returnedCount, eggCount, earnedBadges.length, purified, completedAt, score]);
 
   const joinRoom = (room, name, userInfo) => {
     import("./lib/firebase.js")
@@ -1505,6 +1532,7 @@ function Game() {
     setLifetimeCleared(save.lifetimeCleared ?? prevClearedRef.current);
     setLifetimeGems(save.lifetimeGems ?? prevGemsRef.current);
     setPurified(save.purified ?? 0);
+    setCompletedAt(save.completedAt ?? null);
     setEarnedIds(save.earnedIds ?? {});
     playerRef.current = {
       x: save.pos?.x ?? spawn.x,
@@ -1601,6 +1629,7 @@ function Game() {
     projectilesRef.current = [];
     setEnergy(0);
     setPurified(0);
+    setCompletedAt(null);
     setEarnedIds({});
     setScore({ self: 20, empathy: 20, relation: 20, community: 20 });
     setEndingDismissed(false);
