@@ -241,7 +241,7 @@ function IntroScreen({ onStart, onContinue, savedGame }) {
             value={room}
             onChange={(event) => setRoom(event.target.value)}
             placeholder="우리 반 코드 (선택)"
-            maxLength={6}
+            maxLength={10}
             onKeyDown={(event) => event.key === "Enter" && start()}
           />
         </div>
@@ -291,7 +291,7 @@ function TeacherBoard() {
   const [rows, setRows] = useState([]);
   const [error, setError] = useState("");
   // 요약 기록 throttle: 학생 밝기막대용 __summary 문서를 최대 8초에 한 번만 갱신
-  const lastSummaryRef = useRef({ total: -1, count: -1 });
+  const lastSummaryRef = useRef({ total: -1, count: -1, purified: -1 });
   const lastSummaryAtRef = useRef(0);
 
   useEffect(() => {
@@ -323,13 +323,15 @@ function TeacherBoard() {
   useEffect(() => {
     if (!active || !rows.length) return undefined;
     const total = rows.reduce((sum, r) => sum + (r.cleared || 0), 0);
+    const purified = rows.reduce((sum, r) => sum + (r.purified || 0), 0);
     const count = rows.length;
-    if (total === lastSummaryRef.current.total && count === lastSummaryRef.current.count) return undefined;
+    const last = lastSummaryRef.current;
+    if (total === last.total && count === last.count && purified === last.purified) return undefined;
     const delay = Math.max(0, 8000 - (Date.now() - lastSummaryAtRef.current));
     const timer = window.setTimeout(() => {
-      lastSummaryRef.current = { total, count };
+      lastSummaryRef.current = { total, count, purified };
       lastSummaryAtRef.current = Date.now();
-      import("./lib/firebase.js").then((fb) => fb.pushSummary(active, { total, count })).catch(() => {});
+      import("./lib/firebase.js").then((fb) => fb.pushSummary(active, { total, count, purified })).catch(() => {});
     }, delay);
     return () => window.clearTimeout(timer);
   }, [active, rows]);
@@ -367,6 +369,8 @@ function TeacherBoard() {
 
   const sorted = [...students].sort((a, b) => pointsOf(b) - pointsOf(a));
   const maxPoints = Math.max(1, ...sorted.map(pointsOf));
+  // 반 전체 정화 에너지 = 완주자들이 정화한 장벽 총합 (반별 대결용)
+  const classPurified = students.reduce((sum, r) => sum + (r.purified || 0), 0);
   const avg = (key) =>
     students.length ? Math.round(students.reduce((sum, row) => sum + (row.score?.[key] || 0), 0) / students.length) : 0;
 
@@ -408,7 +412,7 @@ function TeacherBoard() {
       <header className="teacher-head">
         <div>
           <h1>공동체 빌더스 · 교사 화면</h1>
-          <p>학생들이 시작 화면에서 같은 반 코드를 입력하면 진행 상황이 실시간으로 모입니다.</p>
+          <p>원하는 반 코드를 직접 정해 입력하세요(예: 3학년2반). 학생들이 같은 코드를 넣으면 실시간으로 모입니다.</p>
         </div>
         <a href="#" onClick={(event) => { event.preventDefault(); window.location.hash = ""; }}>
           ← 게임으로
@@ -419,8 +423,8 @@ function TeacherBoard() {
         <input
           value={code}
           onChange={(event) => setCode(event.target.value)}
-          placeholder="반 코드 (예: 3반A)"
-          maxLength={6}
+          placeholder="원하는 반 코드 입력 (예: 3학년2반, MJ301)"
+          maxLength={10}
           onKeyDown={(event) => event.key === "Enter" && open(code)}
         />
         <button onClick={() => open(code)}>모니터링 시작</button>
@@ -428,7 +432,7 @@ function TeacherBoard() {
           className="ghost"
           onClick={() => open(String(Math.floor(Math.random() * 9000) + 1000))}
         >
-          새 코드 만들기
+          🎲 랜덤 코드
         </button>
         {active && <span className="room-chip">참여 코드: {active}</span>}
         {active && rows.length > 0 && (
@@ -450,6 +454,10 @@ function TeacherBoard() {
           <div>
             <strong>{students.filter((row) => row.done).length}</strong>
             <span>마을 완성</span>
+          </div>
+          <div className="purify-total">
+            <strong>⚡{classPurified}</strong>
+            <span>반 전체 정화</span>
           </div>
         </section>
       )}
@@ -702,6 +710,9 @@ function Game() {
   const [playerHud, setPlayerHud] = useState({ x: 0, z: 0, dir: 0 });
   const [nearQuest, setNearQuest] = useState(null);
   const [activeQuest, setActiveQuest] = useState(null);
+  // 읽기 게이트: 미션을 열면 잠깐 선택지를 잠가(문제 안 읽고 대충 고르는 것 방지)
+  const [choicesReady, setChoicesReady] = useState(true);
+  const [readCountdown, setReadCountdown] = useState(0);
   const [solved, setSolved] = useState({});
   const [answered, setAnswered] = useState({});
   const [discovered, setDiscovered] = useState({});
@@ -728,6 +739,8 @@ function Game() {
   const [lifetimeGems, setLifetimeGems] = useState(0);
   // 무한 정화: 완주(16미션) 후 되살아난 장벽을 부순 누적 횟수 (메인 점수와 별개 보너스 스탯)
   const [purified, setPurified] = useState(0);
+  // 획득한 배지 id (한 번 얻으면 유지 — 장벽 재생성으로 조건이 잠깐 깨져도 유지)
+  const [earnedIds, setEarnedIds] = useState({});
   const prevClearedRef = useRef(0);
   const prevGemsRef = useRef(0);
   // 반짝 부스트: 만료 시각(Date.now 기준)
@@ -790,7 +803,17 @@ function Game() {
     returned: returnedCount,
     lostTotal: lostItems.length,
   };
-  const earnedBadges = badges.filter((b) => b.check(codexStats));
+  // 배지는 한 번 얻으면 유지 — 빌런이 장벽을 되살려 clearedFogCount가 줄어도 다시 잠기지 않는다.
+  const earnedBadges = badges.filter((b) => earnedIds[b.id]);
+
+  // 조건을 처음 만족한 배지를 영구 획득 목록에 추가(제거는 안 함)
+  useEffect(() => {
+    const newly = badges.filter((b) => !earnedIds[b.id] && b.check(codexStats));
+    if (newly.length) {
+      setEarnedIds((prev) => ({ ...prev, ...Object.fromEntries(newly.map((b) => [b.id, true])) }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completed, clearedFogCount, treasureCount, eggCount, returnedCount]);
 
   runningRef.current = started && !activeQuest && !endingOpen;
 
@@ -884,6 +907,7 @@ function Game() {
         lifetimeCleared,
         lifetimeGems,
         purified,
+        earnedIds,
         pos: { x: playerRef.current.x, z: playerRef.current.z },
       }));
     } catch {
@@ -895,7 +919,7 @@ function Game() {
     if (!started || !user) return undefined;
     const timer = window.setTimeout(() => saveNowRef.current(), 800);
     return () => window.clearTimeout(timer);
-  }, [started, user, profile, solved, answered, discovered, fogs, treasures, foundEggs, lost, energy, score, endingDismissed, lifetimeCleared, lifetimeGems, purified]);
+  }, [started, user, profile, solved, answered, discovered, fogs, treasures, foundEggs, lost, energy, score, endingDismissed, lifetimeCleared, lifetimeGems, purified, earnedIds]);
 
   useEffect(() => {
     if (!started || !user) return undefined;
@@ -1439,6 +1463,7 @@ function Game() {
     setLifetimeCleared(save.lifetimeCleared ?? prevClearedRef.current);
     setLifetimeGems(save.lifetimeGems ?? prevGemsRef.current);
     setPurified(save.purified ?? 0);
+    setEarnedIds(save.earnedIds ?? {});
     playerRef.current = {
       x: save.pos?.x ?? spawn.x,
       z: save.pos?.z ?? spawn.z,
@@ -1487,6 +1512,30 @@ function Game() {
     setActiveQuest({ quest, view: "result", choice });
   };
 
+  // 읽기 게이트: 새 미션(아직 안 푼 것)을 열면 문제 길이에 비례해 2.5~5초간 선택지를 잠근다.
+  // 문제를 최소한 '읽는 시간'을 확보 — 대충 답 찍고 넘어가는 것 방지.
+  useEffect(() => {
+    const freshAsk = activeQuest && !activeQuest.view && !solved[activeQuest.quest.id];
+    if (!freshAsk) {
+      setChoicesReady(true);
+      setReadCountdown(0);
+      return undefined;
+    }
+    setChoicesReady(false);
+    const problem = activeQuest.quest.problem || "";
+    const delayMs = Math.min(5000, Math.max(2500, problem.length * 55));
+    setReadCountdown(Math.ceil(delayMs / 1000));
+    const done = window.setTimeout(() => {
+      setChoicesReady(true);
+      setReadCountdown(0);
+    }, delayMs);
+    const tick = window.setInterval(() => setReadCountdown((n) => (n > 0 ? n - 1 : 0)), 1000);
+    return () => {
+      window.clearTimeout(done);
+      window.clearInterval(tick);
+    };
+  }, [activeQuest, solved]);
+
   const reset = () => {
     playerRef.current = { x: spawn.x, z: spawn.z, dir: -Math.PI * 0.75, moving: false };
     setPlayerHud({ x: spawn.x, z: spawn.z, dir: 0 });
@@ -1510,6 +1559,7 @@ function Game() {
     projectilesRef.current = [];
     setEnergy(0);
     setPurified(0);
+    setEarnedIds({});
     setScore({ self: 20, empathy: 20, relation: 20, community: 20 });
     setEndingDismissed(false);
     setToast("공동체 월드가 다시 시작되었습니다.");
@@ -1677,6 +1727,9 @@ function Game() {
           {endlessMode && (
             <div className="purify-chip" title="완주 후 되살아난 장벽을 정화한 횟수">
               ⚡ 정화 {purified}
+              {profile?.room && classSummary?.purified > 0 && (
+                <em> · 우리 반 {classSummary.purified}</em>
+              )}
             </div>
           )}
           {profile?.room && <div className="room-chip small">반 {profile.room}</div>}
@@ -1990,13 +2043,25 @@ function Game() {
             </div>
 
             {dialogView === "ask" && (
-              <div className="choice-grid">
-                {(activeQuest.choices || activeQuest.quest.choices).map((choice) => (
-                  <button key={choice.text} onClick={() => choose(choice)}>
-                    {choice.text}
-                  </button>
-                ))}
-              </div>
+              <>
+                {!choicesReady && (
+                  <div className="read-gate">
+                    <span>📖 친구의 고민을 천천히 읽어볼까요…</span>
+                    <b>{readCountdown}</b>
+                  </div>
+                )}
+                <div className={choicesReady ? "choice-grid" : "choice-grid locked"}>
+                  {(activeQuest.choices || activeQuest.quest.choices).map((choice) => (
+                    <button
+                      key={choice.text}
+                      disabled={!choicesReady}
+                      onClick={() => choicesReady && choose(choice)}
+                    >
+                      {choice.text}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
 
             {(dialogView === "result" || dialogView === "recap") && (
@@ -2042,30 +2107,27 @@ function Game() {
       {endingOpen && (
         <section className="ending-layer">
           <div className="ending-card">
-            <PartyPopper size={44} color="#facc15" />
-            <h2>마을 완성!</h2>
+            <PartyPopper size={40} color="#facc15" />
+            <h2>미션 1단계 완주! 🎉</h2>
             <p className="ending-title">칭호: <strong>{endingTitle}</strong></p>
             <p className="ending-sub">
-              {profile.name} 탐험가가 16개의 공동체 미션을 모두 해결했습니다.
-              <br />빛장벽 {clearedFogCount}개 해제 · 마음 조각 {treasureCount}/{treasureSeeds.length} · 공동체 에너지 {energy}
+              {profile.name} 탐험가가 16개의 마음 미션을 모두 풀었어요.
+              <br /><strong style={{ color: "#86efac" }}>하지만 아직 끝이 아니에요 — 마을엔 할 일이 많이 남았어요!</strong>
             </p>
-            <div className="ending-stats">
-              {stats.map(({ key, label, color }) => (
-                <div className="stat" key={key}>
-                  <i className="stat-dot" style={{ background: color }} />
-                  <span>{label}</span>
-                  <meter min="0" max="100" value={score[key]} />
-                  <b>{score[key]}</b>
-                </div>
-              ))}
+            <div className="ending-todo">
+              <div className={treasureCount >= treasures.length ? "done" : ""}>💛 마음 조각 <b>{treasureCount}/{treasures.length}</b></div>
+              <div className={returnedCount >= lostItems.length ? "done" : ""}>📮 분실물 돌려주기 <b>{returnedCount}/{lostItems.length}</b></div>
+              <div className={eggCount >= easterEggs.length ? "done" : ""}>🗺️ 숨은 장소 <b>{eggCount}/{easterEggs.length}</b></div>
+              <div className={earnedBadges.length >= badges.length ? "done" : ""}>🏅 도감 배지 <b>{earnedBadges.length}/{badges.length}</b></div>
+              <div>⚡ 그리고 <b>무한 정화 모드</b>가 열렸어요!</div>
             </div>
             <div className="ending-actions">
-              <button className="primary" onClick={saveCertificate}>
-                인증서 저장
+              <button className="primary" onClick={() => setEndingDismissed(true)}>
+                <Sparkles size={16} /> 계속 탐험하기
               </button>
-              <button onClick={() => setEndingDismissed(true)}>계속 탐험 (나중에 저장)</button>
-              <button onClick={goHome}>메인으로</button>
-              <button onClick={() => setConfirmReset(true)}>다시 시작</button>
+              <button className="ghost" onClick={saveCertificate}>지금까지 인증서 저장</button>
+              <button className="ghost" onClick={goHome}>메인으로</button>
+              <button className="ghost" onClick={() => setConfirmReset(true)}>처음부터 다시</button>
             </div>
           </div>
         </section>

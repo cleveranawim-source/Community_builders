@@ -1231,11 +1231,46 @@ meter::-webkit-meter-optimum-value {
   word-break: keep-all;
 }
 
+/* 읽기 게이트 안내 */
+.read-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(250, 204, 21, .14);
+  border: 1px solid rgba(250, 204, 21, .35);
+  color: #fde68a;
+  font-size: 14px;
+  font-weight: 800;
+  word-break: keep-all;
+}
+.read-gate b {
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #facc15;
+  color: #0f172a;
+  font-size: 14px;
+}
+
 .choice-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-top: 24px;
+  transition: opacity .3s ease;
+}
+.choice-grid.locked {
+  opacity: .45;
+  filter: grayscale(.3);
+}
+.choice-grid button:disabled {
+  cursor: not-allowed;
 }
 
 .choice-grid button {
@@ -1404,9 +1439,18 @@ meter::-webkit-meter-optimum-value {
   animation: boost-pulse .9s ease-in-out infinite alternate;
 }
 
+.purify-chip em {
+  font-style: normal;
+  font-weight: 900;
+  color: #3a2a6b;
+  opacity: .85;
+}
+
 .race-chips .purify-tag {
   color: #c4b5fd;
 }
+
+.teacher-summary .purify-total strong { color: #c4b5fd; }
 
 .brightness-chip {
   display: flex;
@@ -1676,6 +1720,27 @@ meter::-webkit-meter-optimum-value {
   word-break: keep-all;
 }
 
+/* 엔딩: 남은 할 일 체크리스트 (게임이 끝난 게 아님을 강조) */
+.ending-todo {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255,255,255,.05);
+  text-align: left;
+}
+.ending-todo div {
+  font-size: 14px;
+  font-weight: 800;
+  color: #e2e8f0;
+  word-break: keep-all;
+}
+.ending-todo div b { color: #facc15; }
+.ending-todo div.done { color: #6ee7b7; }
+.ending-todo div.done b { color: #6ee7b7; }
+.ending-todo div.done::after { content: " ✓"; }
+
 .ending-stats {
   display: grid;
   gap: 10px;
@@ -1709,8 +1774,19 @@ meter::-webkit-meter-optimum-value {
 }
 
 .ending-actions .primary {
-  color: #0f172a;
-  background: #facc15;
+  width: 100%;
+  color: #06251d;
+  background: linear-gradient(160deg, #bbf7d0, #34d399);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 16px;
+}
+.ending-actions .ghost {
+  min-height: 42px;
+  font-size: 13px;
+  background: rgba(255,255,255,.1);
 }
 
 .intro-layer {
