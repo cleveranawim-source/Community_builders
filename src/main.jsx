@@ -371,6 +371,22 @@ function TeacherBoard() {
   const maxPoints = Math.max(1, ...sorted.map(pointsOf));
   // 반 전체 정화 에너지 = 완주자들이 정화한 장벽 총합 (반별 대결용)
   const classPurified = students.reduce((sum, r) => sum + (r.purified || 0), 0);
+
+  // 다부문 타이틀: 부문별 최고 학생에게 왕관을 준다 (한 줄 순위가 완주 후 동점되는 걸 보완).
+  // 상한 있는 값이라 완주자끼리 총점은 같아지지만, 부문마다 다른 주인공이 나오게 하는 게 핵심.
+  const TITLE_DEFS = [
+    { key: "build", icon: "🏘️", name: "건축왕", unit: "미션", val: (r) => r.solvedCount || 0 },
+    { key: "collect", icon: "💎", name: "수집왕", unit: "조각", val: (r) => r.gems || 0 },
+    { key: "deliver", icon: "📮", name: "배달왕", unit: "물건", val: (r) => r.returned || 0 },
+    { key: "explore", icon: "🗺️", name: "탐험왕", unit: "숨은장소", val: (r) => r.eggs || 0 },
+    { key: "purify", icon: "⚡", name: "정화왕", unit: "정화", val: (r) => r.purified || 0 },
+  ];
+  const titleAwards = TITLE_DEFS.map((def) => {
+    const best = students.reduce((m, r) => Math.max(m, def.val(r)), 0);
+    const holders = best > 0 ? students.filter((r) => def.val(r) === best) : [];
+    return { ...def, best, holders };
+  });
+
   const avg = (key) =>
     students.length ? Math.round(students.reduce((sum, row) => sum + (row.score?.[key] || 0), 0) / students.length) : 0;
 
@@ -458,6 +474,32 @@ function TeacherBoard() {
           <div className="purify-total">
             <strong>⚡{classPurified}</strong>
             <span>반 전체 정화</span>
+          </div>
+        </section>
+      )}
+
+      {active && students.length > 0 && (
+        <section className="teacher-titles">
+          <h2>👑 오늘의 타이틀 <em>부문별 최고에게</em></h2>
+          <div className="title-grid">
+            {titleAwards.map((t) => (
+              <div className={`title-card${t.holders.length ? "" : " empty"}`} key={t.key}>
+                <span className="title-emoji">{t.icon}</span>
+                <span className="title-name">{t.name}</span>
+                {t.holders.length ? (
+                  <>
+                    <span className="title-holder">
+                      <i style={{ background: t.holders[0].color || "#94a3b8" }} />
+                      {t.holders[0].name || "이름 없음"}
+                      {t.holders.length > 1 && <em> 외 {t.holders.length - 1}명</em>}
+                    </span>
+                    <span className="title-val">{t.best} {t.unit}</span>
+                  </>
+                ) : (
+                  <span className="title-holder dim">아직 없음</span>
+                )}
+              </div>
+            ))}
           </div>
         </section>
       )}
