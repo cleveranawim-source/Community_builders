@@ -233,7 +233,7 @@ function IntroScreen({ onStart, onContinue, savedGame }) {
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="닉네임 (예: 반짝탐험가)"
+            placeholder="별칭 (예: 반짝탐험가 · 실명 말고)"
             maxLength={10}
             onKeyDown={(event) => event.key === "Enter" && start()}
           />
