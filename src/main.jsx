@@ -26,6 +26,8 @@ import {
   easterEggs,
   lostItems,
   badges,
+  MOOD_LBL,
+  moodIcon,
 } from "./data/index.js";
 import { uid, josa } from "./lib/utils.js";
 import { initAudio, sfx, getMuted, setMuted, getBgmVolume, getSfxVolume, setBgmVolume, setSfxVolume } from "./lib/sound.js";
@@ -46,6 +48,17 @@ const gainForStat = (stat) => Math.round(72 / (QUEST_STAT_COUNT[stat] || 4));
 
 // 진행 자동 저장 (새로고침해도 이어서 하기)
 const SAVE_KEY = "cb_save_v1";
+
+// 우리 반 기록에 함께 싣는 오늘 마무리 칸 (보안 규칙: moodPre·moodPost 1~5, promise 60자)
+const REFLECT_KEYS = ["moodPre", "moodPost", "promise"];
+function reflectFields(r) {
+  const out = {};
+  if (r?.moodPre >= 1 && r.moodPre <= 5) out.moodPre = r.moodPre;
+  if (r?.moodPost >= 1 && r.moodPost <= 5) out.moodPost = r.moodPost;
+  const promise = (r?.promise || "").trim().slice(0, 60);
+  if (promise) out.promise = promise;
+  return out;
+}
 
 function loadSave() {
   try {
@@ -188,9 +201,86 @@ function Joystick({ inputRef }) {
   );
 }
 
+// 그림 아이콘 (못 읽으면 이모지로). 크기는 감싸는 글자 크기(em)를 따른다.
+function IconImg({ src, emoji, className = "" }) {
+  const [bad, setBad] = useState(false);
+  if (!src || bad) return <span className={className}>{emoji}</span>;
+  return <img className={`ico-img ${className}`} src={src} alt="" draggable={false} onError={() => setBad(true)} />;
+}
+
+// 마음 날씨 고르기 (1 폭풍 … 5 맑음). 같은 것을 다시 누르면 비운다.
+function MoodPicker({ value, onChange, label }) {
+  return (
+    <div className="mood-pick" role="group" aria-label={label}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          className={value === n ? "on" : ""}
+          aria-pressed={value === n}
+          aria-label={`마음 날씨 ${MOOD_LBL[n]}`}
+          onClick={() => onChange(value === n ? 0 : n)}
+        >
+          <img src={moodIcon(n)} alt="" />
+          <span>{MOOD_LBL[n]}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function moodDiffText(pre, post) {
+  if (!pre || !post) return "";
+  const line = `${MOOD_LBL[pre]} → ${MOOD_LBL[post]}`;
+  if (post > pre) return `${line} · 처음보다 마음이 한결 맑아졌어요`;
+  if (post < pre) return `${line} · 마음이 조금 무거워졌네요. 선생님께 이야기해도 괜찮아요`;
+  return `${line} · 처음과 같은 마음 날씨예요`;
+}
+
+// 오늘 마무리: 다 마친 뒤 마음 날씨 + 우리 반 약속 한 문장 (끝 화면·마무리 창에서 함께 쓴다)
+function ReflectPanel({ reflect, setReflect, room, onToast }) {
+  const [draft, setDraft] = useState(reflect.promise || "");
+  const text = draft.trim().slice(0, 60);
+  const saved = !!reflect.promise && reflect.promise === text;
+  const save = () => {
+    setReflect((r) => ({ ...r, promise: text }));
+    if (text) onToast(room ? "약속을 우리 반 약속 벽에 올렸어요 (이름 없이 보여요)" : "약속을 남겼어요. 인증서에 함께 담겨요");
+    else onToast("약속을 지웠어요");
+  };
+  return (
+    <div className="reflect-panel">
+      <p className="rp-q">다 마친 지금, 내 마음 날씨는?</p>
+      <MoodPicker
+        value={reflect.moodPost}
+        onChange={(n) => setReflect((r) => ({ ...r, moodPost: n }))}
+        label="다 마친 뒤 마음 날씨"
+      />
+      {reflect.moodPre > 0 && reflect.moodPost > 0 && (
+        <p className="rp-diff">{moodDiffText(reflect.moodPre, reflect.moodPost)}</p>
+      )}
+      <label className="rp-q" htmlFor="rp-promise">우리 반에 남기는 약속 한 문장</label>
+      <div className="rp-promise">
+        <input
+          id="rp-promise"
+          value={draft}
+          maxLength={60}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => event.key === "Enter" && !saved && save()}
+          placeholder="예: 친구 말을 끝까지 들어 줄게요"
+        />
+        <button type="button" onClick={save} disabled={saved || (!text && !reflect.promise)}>
+          {saved ? "남겼어요 ✓" : "약속 남기기"}
+        </button>
+      </div>
+      <p className="rp-note">{room ? "약속은 이름 없이 우리 반 약속 벽에 보여요." : "약속은 인증서에 함께 담겨요."}</p>
+    </div>
+  );
+}
+
 function IntroScreen({ onStart, onContinue, savedGame }) {
   const [name, setName] = useState("");
   const [room, setRoom] = useState("");
+  const [moodPre, setMoodPre] = useState(0);
   const [videoOk, setVideoOk] = useState(true);
   const [showTeaser, setShowTeaser] = useState(false);
   const videoRef = useRef(null);
@@ -202,7 +292,7 @@ function IntroScreen({ onStart, onContinue, savedGame }) {
   }, [videoOk]);
 
   const start = () => {
-    onStart(name.trim() || `탐험가${Math.floor(Math.random() * 90) + 10}`, room.trim().toUpperCase());
+    onStart(name.trim() || `탐험가${Math.floor(Math.random() * 90) + 10}`, room.trim().toUpperCase(), moodPre);
   };
   const savedSolved = savedGame ? Object.values(savedGame.solved || {}).filter(Boolean).length : 0;
 
@@ -245,6 +335,10 @@ function IntroScreen({ onStart, onContinue, savedGame }) {
             onKeyDown={(event) => event.key === "Enter" && start()}
           />
         </div>
+        <div className="intro-mood">
+          <p>지금 내 마음 날씨는? <em>골라도 되고 안 골라도 돼요</em></p>
+          <MoodPicker value={moodPre} onChange={setMoodPre} label="시작할 때 마음 날씨" />
+        </div>
         {savedGame && (
           <button className="intro-continue" onClick={onContinue}>
             이어서 하기 — {savedGame.profile.name} · 미션 {savedSolved}/{quests.length}
@@ -262,8 +356,8 @@ function IntroScreen({ onStart, onContinue, savedGame }) {
         </p>
         <a className="teacher-link" href="#teacher">교사용 화면 열기 →</a>
       </div>
-      <div className="intro-brand" aria-label="제작 LevLab YEOL">
-        <b>Lev</b>Lab <span>YEOL</span>
+      <div className="intro-brand" aria-label="만든 사람 LevLab Yeol">
+        <b>Lev</b>Lab <span>Yeol</span>
       </div>
 
       {showTeaser && (
@@ -285,11 +379,33 @@ function IntroScreen({ onStart, onContinue, savedGame }) {
   );
 }
 
+// 학생 기록의 배지 이모지 묶음(badgeIcons) → 배지 그림들. 모르는 글자는 그대로 둔다.
+function badgeImgsOf(text) {
+  const parts = typeof Intl !== "undefined" && Intl.Segmenter
+    ? [...new Intl.Segmenter("ko", { granularity: "grapheme" }).segment(text)].map((x) => x.segment)
+    : Array.from(text);
+  return parts.map((ch, i) => {
+    const b = badges.find((x) => x.icon === ch);
+    return b ? <img key={i} src={b.img} alt={b.name} title={b.name} /> : <span key={i}>{ch}</span>;
+  });
+}
+
+const TEACHER_HEAD = `${import.meta.env.BASE_URL}assets/teacher_head.webp`;
+
+// 새 반 코드: 헷갈리는 글자(0·O·1·I·L) 뺀 6자리, 암호학적 난수
+function randomRoomCode() {
+  const abc = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const buf = new Uint32Array(6);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, (n) => abc[n % abc.length]).join("");
+}
+
 function TeacherBoard() {
   const [code, setCode] = useState(localStorage.getItem("cb_room") || "");
   const [active, setActive] = useState("");
   const [rows, setRows] = useState([]);
   const [error, setError] = useState("");
+  const [priv, setPriv] = useState(false);
   // 요약 기록 throttle: 학생 밝기막대용 __summary 문서를 최대 8초에 한 번만 갱신
   const lastSummaryRef = useRef({ total: -1, count: -1, purified: -1 });
   const lastSummaryAtRef = useRef(0);
@@ -342,6 +458,7 @@ function TeacherBoard() {
     localStorage.setItem("cb_room", next);
     setCode(next);
     setRows([]);
+    setPriv(false);   // 반을 바꾸면 학생별 기록은 다시 닫힌 채로 (프로젝터 노출 방지)
     setActive(next);
   };
 
@@ -400,12 +517,13 @@ function TeacherBoard() {
     return { ...def, best, holders };
   });
 
+  const moodOf = (v) => (Number.isInteger(v) && v >= 1 && v <= 5 ? v : 0);
   const avg = (key) =>
     students.length ? Math.round(students.reduce((sum, row) => sum + (row.score?.[key] || 0), 0) / students.length) : 0;
 
   // 수업 기록용 CSV 내보내기 (엑셀 한글 호환 BOM 포함)
   const exportCsv = () => {
-    const header = ["순위", "이름", "포인트", "완주 순번", "완주 시각", "미션 해결", "거점 발견", "빛장벽(누적)", "마음 조각", "돌려준 물건", "숨은 장소", "배지", "정화(완주후)", "에너지", "마음알기", "서로듣기", "관계잇기", "마을세우기", "마을 완성"];
+    const header = ["순위", "이름", "포인트", "완주 순번", "완주 시각", "미션 해결", "거점 발견", "빛장벽(누적)", "마음 조각", "돌려준 물건", "숨은 장소", "배지", "정화(완주후)", "에너지", "마음알기", "서로듣기", "관계잇기", "마을세우기", "마을 완성", "마음 날씨(시작)", "마음 날씨(끝)", "우리 반 약속"];
     const lines = sorted.map((row, i) => [
       i + 1,
       row.name || "",
@@ -426,9 +544,17 @@ function TeacherBoard() {
       row.score?.relation || 0,
       row.score?.community || 0,
       row.done ? "O" : "",
+      MOOD_LBL[moodOf(row.moodPre)] || "",
+      MOOD_LBL[moodOf(row.moodPost)] || "",
+      typeof row.promise === "string" ? row.promise : "",
     ]);
-    const csv = "﻿" + [header, ...lines]
-      .map((cells) => cells.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+    // 엑셀 수식 주입 막기: = + - @ 로 시작하는 칸은 앞에 ' 를 붙인다
+    const cellText = (v) => {
+      const t = String(v);
+      return /^[=+\-@\t\r]/.test(t) ? `'${t}` : t;
+    };
+    const csv = "\ufeff" + [header, ...lines]
+      .map((cells) => cells.map((v) => `"${cellText(v).replace(/"/g, '""')}"`).join(","))
       .join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const link = document.createElement("a");
@@ -438,12 +564,28 @@ function TeacherBoard() {
     URL.revokeObjectURL(link.href);
   };
 
+  // ── 반 전체 합계 (프로젝터용 기본 화면: 이름 없음) ──
+  const classCleared = students.reduce((sum, r) => sum + clearedOf(r), 0);
+  const classReturned = students.reduce((sum, r) => sum + (r.returned || 0), 0);
+  const doneCount = students.filter((row) => row.done).length;
+  const moodCount = { pre: [0, 0, 0, 0, 0, 0], post: [0, 0, 0, 0, 0, 0] };
+  const moodMove = { up: 0, same: 0, down: 0 };
+  students.forEach((r) => {
+    const a = moodOf(r.moodPre);
+    const b = moodOf(r.moodPost);
+    if (a) moodCount.pre[a] += 1;
+    if (b) moodCount.post[b] += 1;
+    if (a && b) moodMove[b > a ? "up" : b < a ? "down" : "same"] += 1;
+  });
+  const promises = students.filter((r) => typeof r.promise === "string" && r.promise.trim());
+
   return (
-    <main className="teacher-shell">
-      <header className="teacher-head">
-        <div>
-          <h1>공동체 빌더스 · 교사 화면</h1>
-          <p>원하는 반 코드를 직접 정해 입력하세요(예: 3학년2반). 학생들이 같은 코드를 넣으면 실시간으로 모입니다.</p>
+    <main className={priv ? "teacher-shell priv" : "teacher-shell"}>
+      <header className="teacher-head tb-hero" style={{ backgroundImage: `url(${TEACHER_HEAD})` }}>
+        <div className="tb-hero-text">
+          <p className="tb-kicker">교사 화면</p>
+          <h1>공동체 빌더스</h1>
+          <p>반 코드를 정해 입력하면, 같은 코드로 들어온 학생들이 실시간으로 모여요. 처음 화면은 이름 없이 반 전체만 보여 줘서 프로젝터에 띄워도 괜찮아요.</p>
         </div>
         <a href="#" onClick={(event) => { event.preventDefault(); window.location.hash = ""; }}>
           ← 게임으로
@@ -454,46 +596,105 @@ function TeacherBoard() {
         <input
           value={code}
           onChange={(event) => setCode(event.target.value)}
-          placeholder="원하는 반 코드 입력 (예: 3학년2반, MJ301)"
+          placeholder="반 코드 (예: 3학년2반, MJ301)"
           maxLength={10}
           onKeyDown={(event) => event.key === "Enter" && open(code)}
         />
         <button onClick={() => open(code)}>모니터링 시작</button>
-        <button
-          className="ghost"
-          onClick={() => open(String(Math.floor(Math.random() * 9000) + 1000))}
-        >
-          🎲 랜덤 코드
+        <button className="ghost" onClick={() => open(randomRoomCode())}>
+          🎲 새 코드 만들기
         </button>
         {active && <span className="room-chip">참여 코드: {active}</span>}
-        {active && rows.length > 0 && (
-          <button className="ghost" onClick={exportCsv}>CSV 내보내기</button>
-        )}
       </section>
 
       {error && <p className="teacher-error">{error}</p>}
 
       {active && (
-        <section className="teacher-summary">
-          <div><strong>{students.length}</strong><span>참여 학생</span></div>
-          {stats.map((stat) => (
-            <div key={stat.key}>
-              <strong style={{ color: stat.color }}>{avg(stat.key)}</strong>
-              <span>{stat.label} 평균</span>
+        <>
+          <section className="tb-headline">
+            <div className="tb-big">
+              <strong>{classCleared}</strong>
+              <span>우리 반이 함께 걷어 낸 빛장벽</span>
             </div>
-          ))}
-          <div>
-            <strong>{students.filter((row) => row.done).length}</strong>
-            <span>마을 완성</span>
-          </div>
-          <div className="purify-total">
-            <strong>⚡{classPurified}</strong>
-            <span>반 전체 정화</span>
-          </div>
-        </section>
-      )}
+            <div className="tb-stats">
+              <div><strong>{students.length}</strong><span>참여</span></div>
+              <div><strong>{doneCount}</strong><span>마을 완성</span></div>
+              <div><strong>{classReturned}</strong><span>돌려준 물건</span></div>
+              <div className="purify-total"><strong>⚡{classPurified}</strong><span>반 전체 정화</span></div>
+            </div>
+          </section>
 
-      {active && students.length > 0 && (
+          <section className="tb-grid">
+            <div className="tb-card">
+              <h2>🌱 역량 평균 <em>반 전체 · 100점 기준</em></h2>
+              <div className="tb-comp">
+                {stats.map((stat) => (
+                  <div className="tb-comp-row" key={stat.key} style={{ "--c": stat.color }}>
+                    <span className="tb-comp-name">{stat.label}</span>
+                    <i className="tb-comp-bar"><b style={{ width: `${Math.max(3, avg(stat.key))}%` }} /></i>
+                    <strong>{avg(stat.key)}</strong>
+                  </div>
+                ))}
+              </div>
+              {!students.length && <p className="teacher-empty">학생이 들어오면 평균이 나타나요.</p>}
+            </div>
+
+            <div className="tb-card">
+              <h2>🌤️ 우리 반 마음 날씨 <em>고른 학생만 · 사람 수</em></h2>
+              <div className="tb-mood">
+                <div />
+                {[1, 2, 3, 4, 5].map((v) => (
+                  <div key={v}>
+                    <img src={moodIcon(v)} alt="" />
+                    <span className="ml">{MOOD_LBL[v]}</span>
+                  </div>
+                ))}
+                {[["pre", "시작할 때"], ["post", "다 마친 뒤"]].map(([key, label]) => (
+                  <React.Fragment key={key}>
+                    <span className="rl">{label}</span>
+                    {[1, 2, 3, 4, 5].map((v) => (
+                      <span key={v} className={moodCount[key][v] ? "mc" : "mc zero"}>{moodCount[key][v]}</span>
+                    ))}
+                  </React.Fragment>
+                ))}
+              </div>
+              <p className="tb-mood-foot">
+                <span className="up">맑아짐 <b>{moodMove.up}</b>명</span>
+                <span>그대로 <b>{moodMove.same}</b>명</span>
+                <span className="down">흐려짐 <b>{moodMove.down}</b>명</span>
+                <span className="note">처음과 끝을 둘 다 고른 학생만 셉니다</span>
+              </p>
+            </div>
+          </section>
+
+          <section className="tb-card tb-promises">
+            <h2>🤝 우리 반 약속 벽 <em>이름 없이 약속만 보여요</em></h2>
+            {promises.length ? (
+              <div className="tb-promise-wall">
+                {promises.map((r) => (
+                  <div className="tb-pchip" key={r.id}>
+                    {r.promise}
+                    <span className="by">— {r.name || "이름 없음"}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="teacher-empty">아직 남긴 약속이 없어요. 학생이 끝 화면이나 위쪽 「오늘 마무리」 단추에서 약속을 남기면 여기에 나타나요.</p>
+            )}
+          </section>
+
+          <div className="tb-priv-bar">
+            <button className={priv ? "on" : ""} onClick={() => setPriv((v) => !v)}>
+              {priv ? "👤 학생별 보기 닫기" : "👤 학생별 보기 (교사 전용)"}
+            </button>
+            <span>학생 이름·순위·개인 기록이 나와요. 프로젝터 화면을 끄거나 내 화면에서만 여세요.</span>
+            {priv && students.length > 0 && (
+              <button className="ghost" onClick={exportCsv}>CSV 내보내기</button>
+            )}
+          </div>
+        </>
+      )}
+      {active && priv && students.length > 0 && (
         <section className="teacher-titles">
           <h2>👑 오늘의 타이틀 <em>부문별 최고에게</em></h2>
           <div className="title-grid">
@@ -519,7 +720,7 @@ function TeacherBoard() {
         </section>
       )}
 
-      {active && (
+      {active && priv && (
         <section className="teacher-race">
           <h2>
             🏁 실시간 마을 레이스
@@ -555,7 +756,7 @@ function TeacherBoard() {
         </section>
       )}
 
-      {active && (
+      {active && priv && (
         <section className="teacher-table">
           <div className="teacher-row head">
             <span>학생</span>
@@ -568,6 +769,7 @@ function TeacherBoard() {
             <span>숨은곳</span>
             <span>배지</span>
             <span title="완주 후 되살아난 장벽 정화 횟수 (순위와 별개 보너스)">정화</span>
+            <span title="시작할 때 → 다 마친 뒤">마음 날씨</span>
             <span>역량</span>
           </div>
           {sorted.map((row) => (
@@ -585,9 +787,14 @@ function TeacherBoard() {
               <span>📮{row.returned || 0}/{lostItems.length}</span>
               <span>🗺️{row.eggs || 0}/{easterEggs.length}</span>
               <span className="badge-cell" title={`획득 배지 ${row.badges || 0}/${badges.length}`}>
-                {row.badgeIcons || (row.badges ? `🏅×${row.badges}` : "—")}
+                {row.badgeIcons ? badgeImgsOf(row.badgeIcons) : row.badges ? `🏅×${row.badges}` : "—"}
               </span>
               <span className="pts">{row.purified > 0 ? `⚡${row.purified}` : "—"}</span>
+              <span className="mood-cell" title={`${MOOD_LBL[moodOf(row.moodPre)] || "안 고름"} → ${MOOD_LBL[moodOf(row.moodPost)] || "안 고름"}`}>
+                {moodOf(row.moodPre) ? <img src={moodIcon(moodOf(row.moodPre))} alt={MOOD_LBL[moodOf(row.moodPre)]} /> : <em>·</em>}
+                <i>→</i>
+                {moodOf(row.moodPost) ? <img src={moodIcon(moodOf(row.moodPost))} alt={MOOD_LBL[moodOf(row.moodPost)]} /> : <em>·</em>}
+              </span>
               <span className="bars">
                 {stats.map((stat) => (
                   <i
@@ -604,13 +811,54 @@ function TeacherBoard() {
           )}
         </section>
       )}
+      <p className="tb-sign">만든 사람 LevLab Yeol</p>
     </main>
   );
 }
 
-function saveResultCard({ name, room, score, energy, cleared, gems, eggs = 0, returned = 0, earnedBadges = [], title }) {
+function loadImage(src) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+// 긴 한국어 문장을 낱말 단위로 줄 나누기 (낱말 중간에서 자르지 않음)
+function wrapWords(ctx, text, maxWidth, maxLines) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+  words.forEach((word) => {
+    // 띄어쓰기 없이 한 줄보다 긴 낱말만 글자 단위로 나눈다
+    while (ctx.measureText(word).width > maxWidth && word.length > 1) {
+      let cut = word.length - 1;
+      while (cut > 1 && ctx.measureText(word.slice(0, cut)).width > maxWidth) cut -= 1;
+      if (line) lines.push(line);
+      line = "";
+      lines.push(word.slice(0, cut));
+      word = word.slice(cut);
+    }
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width <= maxWidth || !line) line = next;
+    else {
+      lines.push(line);
+      line = word;
+    }
+  });
+  if (line) lines.push(line);
+  return lines.slice(0, maxLines);
+}
+
+async function saveResultCard({ name, room, score, energy, cleared, gems, eggs = 0, returned = 0, earnedBadges = [], title, reflect = {} }) {
+  const badgeImgs = await Promise.all(earnedBadges.map((b) => (b.img ? loadImage(b.img) : null)));
+  const moodImgs = await Promise.all([reflect.moodPre, reflect.moodPost].map((n) => (n ? loadImage(moodIcon(n)) : null)));
+  const promise = (reflect.promise || "").trim();
+  const hasMood = !!(reflect.moodPre || reflect.moodPost);
+  const extra = (promise ? 110 : 0) + (hasMood ? 84 : 0);
   const W = 1000;
-  const H = 880;
+  const H = 880 + extra;
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
@@ -690,18 +938,56 @@ function saveResultCard({ name, room, score, energy, cleared, gems, eggs = 0, re
   ctx.font = "800 20px 'Apple SD Gothic Neo', sans-serif";
   ctx.fillText(`획득 배지 ${earnedBadges.length}/${badges.length}`, 60, 752);
 
-  // 획득한 배지 아이콘을 한 줄로 (이모지)
+  // 획득한 배지를 한 줄로 (그림, 못 읽으면 이모지)
   ctx.font = "34px 'Apple SD Gothic Neo', sans-serif";
   ctx.textBaseline = "middle";
   earnedBadges.forEach((b, i) => {
-    ctx.fillText(b.icon, 60 + i * 52, 792);
+    const img = badgeImgs[i];
+    if (img) ctx.drawImage(img, 56 + i * 58, 766, 52, 52);
+    else ctx.fillText(b.icon, 60 + i * 58, 792);
   });
   ctx.textBaseline = "alphabetic";
+
+  // 오늘 마무리: 마음 날씨 · 우리 반 약속
+  let y = 866;
+  if (hasMood) {
+    ctx.fillStyle = "#facc15";
+    ctx.font = "900 22px 'Apple SD Gothic Neo', sans-serif";
+    ctx.fillText("마음 날씨", 60, y);
+    let x = 190;
+    ctx.font = "800 22px 'Apple SD Gothic Neo', sans-serif";
+    [["시작", reflect.moodPre, moodImgs[0]], ["끝", reflect.moodPost, moodImgs[1]]].forEach(([label, n, img], i) => {
+      if (!n) return;
+      if (i === 1 && reflect.moodPre) {
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillText("→", x, y);
+        x += 40;
+      }
+      ctx.fillStyle = "#cbd5e1";
+      ctx.fillText(label, x, y);
+      x += ctx.measureText(label).width + 8;
+      if (img) ctx.drawImage(img, x, y - 30, 40, 40);
+      x += 46;
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillText(MOOD_LBL[n], x, y);
+      x += ctx.measureText(MOOD_LBL[n]).width + 28;
+    });
+    y += 64;
+  }
+  if (promise) {
+    ctx.fillStyle = "#3FE5A0";
+    ctx.font = "900 22px 'Apple SD Gothic Neo', sans-serif";
+    ctx.fillText("우리 반에 남긴 약속", 60, y);
+    ctx.fillStyle = "#f8fafc";
+    ctx.font = "800 24px 'Apple SD Gothic Neo', sans-serif";
+    wrapWords(ctx, `“${promise}”`, W - 120, 2).forEach((line, i) => ctx.fillText(line, 60, y + 36 + i * 32));
+    y += 110;
+  }
 
   const today = new Date().toLocaleDateString("ko-KR");
   ctx.fillStyle = "#94a3b8";
   ctx.font = "700 20px 'Apple SD Gothic Neo', sans-serif";
-  ctx.fillText(`${today} · 사회정서교육(SEL) 공동체 활동`, 60, 836);
+  ctx.fillText(`${today} · 사회정서교육(SEL) 공동체 활동`, 60, H - 44);
 
   const stamp = new Date().toISOString().slice(0, 10);
   const roomTag = room ? `${room}반_` : "";
@@ -788,6 +1074,9 @@ function Game() {
   const [deliverTarget, setDeliverTarget] = useState(null);
   const [deliverPopup, setDeliverPopup] = useState(null);
   const [codexOpen, setCodexOpen] = useState(false);
+  const [reflectOpen, setReflectOpen] = useState(false);
+  // 오늘 마무리 기록: 시작·끝 마음 날씨(0=안 고름)와 우리 반 약속
+  const [reflect, setReflect] = useState({ moodPre: 0, moodPost: 0, promise: "" });
   const [projectiles, setProjectiles] = useState([]);
   const [energy, setEnergy] = useState(0);
   const [toast, setToast] = useState("");
@@ -844,6 +1133,10 @@ function Game() {
   const discoveredCount = Object.values(discovered).filter(Boolean).length;
   const peerList = Object.values(peers);
   const onlineCount = peerList.length + 1;
+  // 왼쪽 패널 초상 줄은 6칸: 나 1칸 + 친구(넘치면 4명 + '더 있음') + 남는 칸은 마을 주민
+  const partyPeerShown = peerList.length > 5 ? 4 : peerList.length;
+  const partyMineCols = 1 + partyPeerShown + (peerList.length > partyPeerShown ? 1 : 0);
+  const partyNpcCount = 6 - partyMineCols;
   const clearedFogCount = fogs.filter((fog) => fog.cleared).length;
   const treasureCount = treasures.filter((t) => t.found).length;
   const eggCount = Object.values(foundEggs).filter(Boolean).length;
@@ -882,7 +1175,7 @@ function Game() {
     if (started && completed === quests.length && !completedAt) setCompletedAt(Date.now());
   }, [started, completed, completedAt]);
 
-  runningRef.current = started && !activeQuest && !endingOpen;
+  runningRef.current = started && !activeQuest && !endingOpen && !reflectOpen;
 
   useEffect(() => {
     fogsRef.current = fogs;
@@ -976,6 +1269,7 @@ function Game() {
         purified,
         completedAt,
         earnedIds,
+        reflect,
         pos: { x: playerRef.current.x, z: playerRef.current.z },
       }));
     } catch {
@@ -987,7 +1281,7 @@ function Game() {
     if (!started || !user) return undefined;
     const timer = window.setTimeout(() => saveNowRef.current(), 800);
     return () => window.clearTimeout(timer);
-  }, [started, user, profile, solved, answered, discovered, fogs, treasures, foundEggs, lost, energy, score, endingDismissed, lifetimeCleared, lifetimeGems, purified, completedAt, earnedIds]);
+  }, [started, user, profile, solved, answered, discovered, fogs, treasures, foundEggs, lost, energy, score, endingDismissed, lifetimeCleared, lifetimeGems, purified, completedAt, earnedIds, reflect]);
 
   useEffect(() => {
     if (!started || !user) return undefined;
@@ -1447,37 +1741,50 @@ function Game() {
   // 우리 반 모드: 진행 상황을 2.5초 디바운스로 Firestore에 기록 (장벽·조각은 누적값).
   // write 부하를 줄이려 '자주 바뀌는 energy'는 트리거(deps)에서 제외한다 — 미션·장벽·조각
   // 등 의미 있는 변화가 일어날 때 함께 최신 energy가 실려 나가므로 대시보드엔 충분히 반영된다.
+  // 지금 상태를 반 기록에 바로 올리는 함수 (자동저장 타이머·홈으로 나가기에서 함께 쓴다)
+  const pushRemoteRef = useRef(() => {});
+  pushRemoteRef.current = () => {
+    if (!profile?.room || !user) return;
+    const room = profile.room;
+    const body = {
+      ...reflectFields(reflect),
+      name: profile.name,
+      color: user.color,
+      found: discoveredCount,
+      solvedCount: completed,
+      cleared: lifetimeCleared,
+      gems: lifetimeGems,
+      returned: returnedCount,
+      eggs: eggCount,
+      badges: earnedBadges.length,
+      badgeIcons: earnedBadges.map((b) => b.icon).join(""),
+      purified,
+      completedAt: completedAt ?? null,
+      energy,
+      score,
+      done: completed === quests.length,
+    };
+    import("./lib/firebase.js")
+      .then((fb) => fb.pushProgress(room, user.id, body, REFLECT_KEYS))
+      .catch(() => {});
+  };
+  const remotePendingRef = useRef(false);
   useEffect(() => {
     if (!profile?.room || !user) return undefined;
+    remotePendingRef.current = true;
     const timer = window.setTimeout(() => {
-      import("./lib/firebase.js")
-        .then((fb) => fb.pushProgress(profile.room, user.id, {
-          name: profile.name,
-          color: user.color,
-          found: discoveredCount,
-          solvedCount: completed,
-          cleared: lifetimeCleared,
-          gems: lifetimeGems,
-          returned: returnedCount,
-          eggs: eggCount,
-          badges: earnedBadges.length,
-          badgeIcons: earnedBadges.map((b) => b.icon).join(""),
-          purified,
-          completedAt: completedAt ?? null,
-          energy,
-          score,
-          done: completed === quests.length,
-        }))
-        .catch(() => {});
+      remotePendingRef.current = false;
+      pushRemoteRef.current();
     }, 2500);
     return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, user, discoveredCount, completed, lifetimeCleared, lifetimeGems, returnedCount, eggCount, earnedBadges.length, purified, completedAt, score]);
+  }, [profile, user, discoveredCount, completed, lifetimeCleared, lifetimeGems, returnedCount, eggCount, earnedBadges.length, purified, completedAt, score, reflect]);
 
-  const joinRoom = (room, name, userInfo) => {
+  // fresh: 새로 시작 — 지난번 마음 날씨·약속을 비우고 이번 시작 날씨만 남긴다
+  const joinRoom = (room, name, userInfo, fresh = null) => {
     import("./lib/firebase.js")
       .then(async (fb) => {
         await fb.pushProgress(room, userInfo.id, {
+          ...(fresh ? reflectFields(fresh) : {}),
           name,
           color: userInfo.color,
           found: 0,
@@ -1490,9 +1797,9 @@ function Game() {
           badgeIcons: "",
           purified: 0,
           energy: 0,
-          score,
+          score: fresh ? { self: 20, empathy: 20, relation: 20, community: 20 } : score,
           done: false,
-        });
+        }, fresh ? REFLECT_KEYS : []);
         setToast(`우리 반(${room})에 연결되었습니다. 마을을 깨워 볼까요?`);
       })
       .catch(() => setToast("우리 반 연결에 실패했습니다. 혼자 모드로 시작합니다."));
@@ -1534,6 +1841,7 @@ function Game() {
     setPurified(save.purified ?? 0);
     setCompletedAt(save.completedAt ?? null);
     setEarnedIds(save.earnedIds ?? {});
+    setReflect({ moodPre: 0, moodPost: 0, promise: "", ...(save.reflect || {}) });
     playerRef.current = {
       x: save.pos?.x ?? spawn.x,
       z: save.pos?.z ?? spawn.z,
@@ -1546,18 +1854,26 @@ function Game() {
     else setToast("이어서 탐험을 시작합니다!");
   };
 
-  const startGame = (name, room) => {
+  const startGame = (name, room, moodPre = 0) => {
     initAudio();
     try {
       localStorage.removeItem(SAVE_KEY);
     } catch {
       // 무시
     }
+    // 같은 탭에서 홈으로 나갔다가 새로 시작하면 앞 판(다른 반일 수도)의 기록이 따라오지 않게 모두 비운다
+    resetWorld();
+    setLifetimeCleared(0);
+    setLifetimeGems(0);
+    prevClearedRef.current = 0;
+    prevGemsRef.current = 0;
     const newUser = makeUser();
     setUser(newUser);
     setProfile({ name, room });
+    const fresh = { moodPre, moodPost: 0, promise: "" };
+    setReflect(fresh);
     if (room) {
-      joinRoom(room, name, newUser);
+      joinRoom(room, name, newUser, fresh);
     } else {
       setToast("빛장벽을 깨고 보물 거점을 찾아보세요!");
     }
@@ -1606,7 +1922,8 @@ function Game() {
     };
   }, [activeQuest, solved]);
 
-  const reset = () => {
+  // 월드(미션·장벽·보물·분실물·점수)를 처음 상태로 — '처음부터 다시'와 '새로 시작'이 함께 쓴다
+  const resetWorld = () => {
     playerRef.current = { x: spawn.x, z: spawn.z, dir: -Math.PI * 0.75, moving: false };
     setPlayerHud({ x: spawn.x, z: spawn.z, dir: 0 });
     setSolved({});
@@ -1633,14 +1950,21 @@ function Game() {
     setEarnedIds({});
     setScore({ self: 20, empathy: 20, relation: 20, community: 20 });
     setEndingDismissed(false);
-    setToast("공동체 월드가 다시 시작되었습니다.");
     setActiveQuest(null);
     setConfirmReset(false);
+  };
+  const reset = () => {
+    resetWorld();
+    // 새 판이니 지난 판의 '다 마친 뒤' 날씨와 약속은 비운다 (오늘 시작 날씨는 그대로)
+    setReflect((r) => ({ ...r, moodPost: 0, promise: "" }));
+    setToast("공동체 월드가 다시 시작되었습니다.");
   };
 
   // 시작 화면으로 나가기 — 진행은 자동저장되므로 '이어서 하기'로 복귀 가능
   const goHome = () => {
     saveNowRef.current();          // 현재 진행을 즉시 저장
+    // 2.5초 자동저장을 기다리던 변경(방금 남긴 약속 등)은 나가기 전에 반 기록에도 바로 올린다
+    if (remotePendingRef.current) { remotePendingRef.current = false; pushRemoteRef.current(); }
     setSavedGame(loadSave());      // 시작 화면의 '이어서 하기'에 최신 진행 반영
     setActiveQuest(null);
     setConfirmReset(false);
@@ -1681,6 +2005,7 @@ function Game() {
     returned: returnedCount,
     earnedBadges,
     title: endingTitle,
+    reflect,
   });
 
   // 우리 반 마을 밝기: 교사 화면이 집계해 준 요약(총 깬 장벽·인원)으로 계산
@@ -1762,25 +2087,34 @@ function Game() {
           <strong>{completed}/{quests.length}</strong>
           <span>미션 해결 · 발견 {discoveredCount}</span>
         </div>
-        <div className="party-strip" aria-label="접속한 공동체 탐험가">
+        {/* 6칸 한 줄: [나 + 접속 친구] | [마을 주민]. 위에 이름표를 달아 접속 인원과 헷갈리지 않게 */}
+        <div className="party-cap" aria-hidden="true">
+          <span className="pc-me" style={{ gridColumn: `span ${partyMineCols}` }}>
+            {partyMineCols === 1 ? "나" : "나·접속 친구"}
+          </span>
+          {partyNpcCount > 0 && (
+            <span className="pc-npc" style={{ gridColumn: `span ${partyNpcCount}` }}>마을 주민</span>
+          )}
+        </div>
+        <div className="party-strip" aria-label="나와 접속한 친구, 마을 주민">
           <div className="party-member current">
             <img src={HERO_PORTRAIT} alt="나" />
             <span>{profile?.name || "나"}</span>
           </div>
-          {peerList.slice(0, 5).map((peer) => (
+          {peerList.slice(0, partyPeerShown).map((peer) => (
             <div className="party-member online" key={peer.id}>
               <i style={{ background: peer.color }} />
               <span>{peer.name}</span>
             </div>
           ))}
-          {peerList.length > 5 && (
+          {peerList.length > partyPeerShown && (
             <div className="party-member more">
-              <i>+{peerList.length - 5}</i>
+              <i>+{peerList.length - partyPeerShown}</i>
               <span>더 있음</span>
             </div>
           )}
-          {peerList.length < 5 && quests.slice(0, 5 - peerList.length).map((quest) => (
-            <div className={solved[quest.id] ? "party-member solved" : "party-member"} key={quest.id}>
+          {quests.slice(0, partyNpcCount).map((quest) => (
+            <div className={solved[quest.id] ? "party-member npc solved" : "party-member npc"} key={quest.id}>
               <img src={portraitOf(quest.id)} alt={quest.name} />
               <span>{quest.name}</span>
             </div>
@@ -1807,6 +2141,14 @@ function Game() {
           <div className="sys-buttons">
             <button className="icon-chip" onClick={toggleMuted} title={muted ? "소리 켜기" : "소리 끄기"} aria-label={muted ? "소리 켜기" : "소리 끄기"}>
               {muted ? "🔇" : "🔊"}
+            </button>
+            <button
+              className={reflect.moodPost || reflect.promise ? "icon-chip reflect-chip done" : "icon-chip reflect-chip"}
+              onClick={() => setReflectOpen(true)}
+              title="오늘 마무리 (마음 날씨·약속)"
+              aria-label="오늘 마무리 열기 — 마음 날씨와 우리 반 약속"
+            >
+              <img src={moodIcon(reflect.moodPost || 4)} alt="" />
             </button>
             <button className="icon-chip codex-chip" onClick={() => setCodexOpen(true)} title="수집 도감" aria-label="수집 도감 열기">
               <BookOpen size={15} />
@@ -1869,7 +2211,18 @@ function Game() {
             <div className="stat" key={key}>
               <i className="stat-dot" style={{ background: color }} />
               <span>{label}</span>
-              <meter min="0" max="100" value={score[key]} />
+              <i
+                className="stat-bar"
+                role="meter"
+                aria-label={label}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={score[key]}
+                style={{ "--c": color }}
+              >
+                <b style={{ width: `${Math.max(4, score[key])}%` }} />
+              </i>
+              <strong className="stat-num" style={{ color }}>{score[key]}</strong>
             </div>
           ))}
         </div>
@@ -1887,7 +2240,7 @@ function Game() {
       {/* 분실물 들고 있을 때: 무엇을 나르는지 + 주인 안내 + 내려놓기 */}
       {carrying && (
         <div className="carry-hud">
-          <span className="carry-icon">{carrying.icon}</span>
+          <span className="carry-icon"><IconImg src={carrying.img} emoji={carrying.icon} /></span>
           <span className="carry-text">
             <b>{carrying.name}</b>
             <em>주인 {carrying.ownerName}에게 돌려주세요 📍</em>
@@ -1924,14 +2277,14 @@ function Game() {
           </span>
           <span className="quest-prompt-text">
             <b>{deliverTarget.ownerName}에게 돌려주기</b>
-            <em>{deliverTarget.icon} {deliverTarget.name}</em>
+            <em><IconImg src={deliverTarget.img} emoji={deliverTarget.icon} /> {deliverTarget.name}</em>
           </span>
           <span className="quest-prompt-cta">돌려주기 <span className="quest-prompt-key">E</span></span>
         </button>
       ) : nearLost && !activeQuest ? (
         <button className="quest-prompt lost-pickup" onClick={() => pickUpLost(nearLost)}>
           <span className="quest-prompt-badge">?</span>
-          <span className="quest-prompt-emoji">{nearLost.icon}</span>
+          <span className="quest-prompt-emoji"><IconImg src={nearLost.img} emoji={nearLost.icon} /></span>
           <span className="quest-prompt-text">
             <b>누가 흘리고 갔어요</b>
             <em>{nearLost.name} · 주워 볼까요?</em>
@@ -1970,6 +2323,24 @@ function Game() {
         </div>
       )}
 
+      {reflectOpen && (
+        <section className="dialog-layer" onClick={() => setReflectOpen(false)}>
+          <div className="codex-box reflect-box" onClick={(event) => event.stopPropagation()}>
+            <div className="codex-head">
+              <h3><img className="reflect-head-ico" src={moodIcon(reflect.moodPost || 4)} alt="" /> 오늘 마무리</h3>
+              <button className="codex-close" onClick={() => setReflectOpen(false)} aria-label="닫기">✕</button>
+            </div>
+            {reflect.moodPre > 0 && (
+              <p className="rp-pre">
+                시작할 때 고른 마음 날씨 <img src={moodIcon(reflect.moodPre)} alt="" /> <b>{MOOD_LBL[reflect.moodPre]}</b>
+              </p>
+            )}
+            <ReflectPanel reflect={reflect} setReflect={setReflect} room={profile?.room} onToast={setToast} />
+            <button className="codex-save" onClick={() => setReflectOpen(false)}>다시 탐험하기</button>
+          </div>
+        </section>
+      )}
+
       {codexOpen && (
         <section className="dialog-layer" onClick={() => setCodexOpen(false)}>
           <div className="codex-box" onClick={(event) => event.stopPropagation()}>
@@ -1992,7 +2363,9 @@ function Game() {
                 const earned = earnedBadges.some((b) => b.id === badge.id);
                 return (
                   <div key={badge.id} className={earned ? "codex-badge earned" : "codex-badge"}>
-                    <span className="codex-badge-icon">{earned ? badge.icon : "🔒"}</span>
+                    <span className="codex-badge-icon">
+                      <IconImg src={badge.img} emoji={earned ? badge.icon : "🔒"} className={earned ? "" : "locked"} />
+                    </span>
                     <b>{badge.name}</b>
                     <em>{badge.desc}</em>
                   </div>
@@ -2054,7 +2427,7 @@ function Game() {
           <div className="deliver-popup" onClick={(event) => event.stopPropagation()}>
             <div className="deliver-popup-avatar">
               <img src={portraitOf(deliverPopup.owner)} alt={deliverPopup.ownerName} />
-              <span className="deliver-popup-item">{deliverPopup.icon}</span>
+              <span className="deliver-popup-item"><IconImg src={deliverPopup.img} emoji={deliverPopup.icon} /></span>
             </div>
             <p className="deliver-popup-kicker">{deliverPopup.ownerName}에게 돌려주었어요</p>
             <p className="deliver-popup-thanks">“{deliverPopup.thanks}”</p>
@@ -2192,6 +2565,7 @@ function Game() {
               <div className={earnedBadges.length >= badges.length ? "done" : ""}>🏅 도감 배지 <b>{earnedBadges.length}/{badges.length}</b></div>
               <div>⚡ 그리고 <b>무한 정화 모드</b>가 열렸어요!</div>
             </div>
+            <ReflectPanel reflect={reflect} setReflect={setReflect} room={profile.room} onToast={setToast} />
             <div className="ending-actions">
               <button className="primary" onClick={() => setEndingDismissed(true)}>
                 <Sparkles size={16} /> 계속 탐험하기

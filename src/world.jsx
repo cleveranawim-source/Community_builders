@@ -100,6 +100,14 @@ function computeTerrainData() {
 
 const TERRAIN = computeTerrainData();
 
+// 타일 윗면 높이 (블록 0.42 높이의 위 0.21 + 윗판 0.035) — 발밑 표시를 바닥에 붙일 때 쓴다
+const TILE_TOP = new Map(
+  TERRAIN.tiles.map((t) => [`${t.x},${t.z}`, t.type === "water" ? t.height + 0.21 : t.height + 0.2675])
+);
+function tileTopAt(x, z) {
+  return TILE_TOP.get(`${Math.round(x)},${Math.round(z)}`) ?? 0.27;
+}
+
 // 길·연못·거점·빛장벽·이웃 집과 겹치지 않는 후보만 집으로 확정
 function isHouseSpotFree(x, z, placed) {
   const rx = Math.round(x);
@@ -193,6 +201,7 @@ function createCharacterModel({ color, hair = 0x26314d, player = false }) {
   const capMat = mat(0xf59e0b, { roughness: 0.55 });
   const packMat = mat(0xef4444, { roughness: 0.6 });
 
+  let ring = null;
   const shadow = new THREE.Mesh(
     new THREE.CircleGeometry(0.52, 36),
     new THREE.MeshBasicMaterial({ color: 0x223044, transparent: true, opacity: 0.2 })
@@ -326,12 +335,22 @@ function createCharacterModel({ color, hair = 0x26314d, player = false }) {
     );
     arrow.position.set(0, 0.045, -0.62);
     group.add(arrow);
+
+    // 내 캐릭터 발밑 링: 밝은 광장 바닥과 노란 옷이 비슷해 묻히지 않도록 짙은 청록 테두리
+    // (높이는 매 프레임 발밑 타일 윗면에 맞춘다 → tileTopAt)
+    ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.5, 0.62, 48),
+      new THREE.MeshBasicMaterial({ color: 0x236856, transparent: true, opacity: 0.8, depthWrite: false })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.renderOrder = 3;
+    group.add(ring);
   }
 
   group.scale.setScalar(player ? 1.04 : 0.94);
   return {
     group,
-    parts: { leftArm, rightArm, leftLeg, rightLeg, body, head },
+    parts: { leftArm, rightArm, leftLeg, rightLeg, body, head, ring },
   };
 }
 
@@ -1295,6 +1314,10 @@ export default function GameWorld({
         player.z
       );
       playerChar.group.rotation.y = lerpAngle(playerChar.group.rotation.y, player.dir, 0.28);
+      if (playerChar.parts.ring) {
+        // 그룹이 걸을 때 통통 뛰어도 링은 바닥에 붙어 있게 (그룹 배율 1.04 보정)
+        playerChar.parts.ring.position.y = (tileTopAt(player.x, player.z) + 0.015 - playerChar.group.position.y) / 1.04;
+      }
       applyWalkPose(playerChar.parts, t, player.moving);
 
       camTarget.set(player.x + 7.8, 8.4, player.z + 7.8);

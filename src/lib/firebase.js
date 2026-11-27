@@ -10,6 +10,7 @@ import {
   connectFirestoreEmulator,
   doc,
   setDoc,
+  deleteField,
   collection,
   onSnapshot,
 } from "firebase/firestore";
@@ -84,13 +85,14 @@ function subscribeAfterAuth(start, onFail) {
 // 주의: Firestore 규칙이 rooms/{room}의 하위 문서만 허용하므로
 // 방 부모 문서는 만들지 않는다. 방은 builders 하위 문서로 암묵 생성된다.
 // 문서 ID 는 넘겨받은 playerId 대신 익명 로그인 uid 를 쓴다(규칙: 내 uid 문서만 쓰기).
-export async function pushProgress(code, _playerId, data) {
+// clearKeys: 이번에 새로 시작해 비워야 할 칸(지난번 마음 날씨·약속). data 에 없는 것만 지운다.
+export async function pushProgress(code, _playerId, data, clearKeys = []) {
   const uid = await ensureUid();
-  await setDoc(
-    doc(getDb(), "rooms", code, "builders", uid),
-    { ...data, updatedAt: Date.now() },
-    { merge: true }
-  );
+  const body = { ...data, updatedAt: Date.now() };
+  clearKeys.forEach((key) => {
+    if (!(key in data)) body[key] = deleteField();
+  });
+  await setDoc(doc(getDb(), "rooms", code, "builders", uid), body, { merge: true });
 }
 
 export function watchRoom(code, callback) {

@@ -1,5 +1,7 @@
 import raw from "./quests.json";
 
+const BASE = import.meta.env.BASE_URL;
+
 export const WORLD_SIZE = 141;
 export const HALF = Math.floor(WORLD_SIZE / 2);
 export const NPC_RADIUS = 4.4;
@@ -45,10 +47,19 @@ export const easterEggs = [
   { id: "egg-cat", x: 63, z: 16, icon: "🐈", name: "고양이의 낮잠 자리", color: "#a8e6cf", toast: "마을 동쪽 구석, 고양이가 낮잠 자는 비밀 장소를 찾았어요... 야옹." },
 ];
 
+// 그림 아이콘(코덱스 제작, public/assets/icons). 그림을 못 읽으면 화면에서 이모지로 돌아간다.
+function withImg(list, pathOf) {
+  return list.map((it) => ({ ...it, img: pathOf(it) }));
+}
+
+// 마음 날씨 1~5 (1 폭풍 … 5 맑음) — 세 게임 공통
+export const MOOD_LBL = ["", "폭풍", "비", "흐림", "구름 조금", "맑음"];
+export const moodIcon = (n) => `${BASE}assets/icons/mood-${n}.png`;
+
 // 분실물 되돌려주기: 땅에 떨어진 물건을 '줍기' 버튼으로 집어 주인 NPC에게 돌려준다.
 // 마음 조각(자동 획득)과 달리 능동적으로 줍고, 주인을 찾아 배려하는 친사회적 루프.
 // owner = 주인 quest id (portraitOf로 초상 사용), thanks = 돌려준 순간의 사연 한 줄(여운의 핵심)
-export const lostItems = [
+export const lostItems = withImg([
   {
     id: "lost-scarf",
     icon: "🧣",
@@ -113,10 +124,10 @@ export const lostItems = [
     owner: "sori", ownerName: "소리",
     thanks: "제 모자예요! 바람에 휙 날아가서 한참 찾아 헤맸는데. 챙겨줘서 정말 고마워요.",
   },
-];
+], (it) => `${BASE}assets/icons/${it.id}.png`);
 
 // 배지: 수집·성취 도감에 표시되는 획득형 뱃지
-export const badges = [
+export const badges = withImg([
   { id: "first-mission", icon: "🌱", name: "첫 만남", desc: "첫 미션 해결", check: (s) => s.solved >= 1 },
   { id: "half-mission", icon: "🌿", name: "마을의 친구", desc: "미션 8개 해결", check: (s) => s.solved >= 8 },
   { id: "all-mission", icon: "🏘️", name: "마을의 건축가", desc: "16개 미션 모두 해결", check: (s) => s.solved >= 16 },
@@ -126,9 +137,7 @@ export const badges = [
   { id: "gem-all", icon: "💎", name: "조각의 완성", desc: "마음 조각 모두 수집", check: (s) => s.gems >= s.gemTotal },
   { id: "egg-all", icon: "🗺️", name: "숨은 길 탐험가", desc: "숨은 장소 3곳 발견", check: (s) => s.eggs >= 3 },
   { id: "lost-all", icon: "📮", name: "마을의 배달부", desc: "잃어버린 물건 모두 되돌려주기", check: (s) => s.returned >= s.lostTotal },
-];
-
-const BASE = import.meta.env.BASE_URL;
+], (b) => `${BASE}assets/icons/badge-${b.id}.png`);
 
 export function portraitOf(id) {
   return `${BASE}assets/portraits/${id}.jpg`;
