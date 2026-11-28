@@ -143,6 +143,12 @@ export function portraitOf(id) {
   return `${BASE}assets/portraits/${id}.jpg`;
 }
 
+// 미션 장면 그림(힉스필드 제작, public/assets/scenes): 미션을 풀면 되살아난 장소를 그림으로 보여 준다.
+// 그림을 못 읽으면 화면에서 그 칸만 감춘다(글만으로도 내용은 다 전해진다).
+export const sceneOf = (id) => `${BASE}assets/scenes/${id}.webp`;
+export const sceneThumbOf = (id) => `${BASE}assets/scenes/thumb/${id}.webp`;
+export const ENDING_ART = `${BASE}assets/scenes/ending.webp`;
+
 export const HERO_PORTRAIT = `${BASE}assets/portraits/hero.jpg`;
 export const TITLE_BG = `${BASE}assets/portraits/title-bg.jpg`;
 export const TITLE_BG_VIDEO = `${BASE}assets/video/title-bg.mp4`;

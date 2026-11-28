@@ -28,6 +28,9 @@ import {
   badges,
   MOOD_LBL,
   moodIcon,
+  sceneOf,
+  sceneThumbOf,
+  ENDING_ART,
 } from "./data/index.js";
 import { uid, josa } from "./lib/utils.js";
 import { initAudio, sfx, getMuted, setMuted, getBgmVolume, getSfxVolume, setBgmVolume, setSfxVolume } from "./lib/sound.js";
@@ -206,6 +209,18 @@ function IconImg({ src, emoji, className = "" }) {
   const [bad, setBad] = useState(false);
   if (!src || bad) return <span className={className}>{emoji}</span>;
   return <img className={`ico-img ${className}`} src={src} alt="" draggable={false} onError={() => setBad(true)} />;
+}
+
+// 미션을 풀면 되살아난 장소의 그림. 못 읽으면(또는 교사가 장소 이름을 바꿨으면) 칸째 감춘다.
+function SceneArt({ quest }) {
+  const [bad, setBad] = useState(false);
+  if (quest.noScene || bad) return null;
+  return (
+    <figure className="scene-card">
+      <img src={sceneOf(quest.id)} alt={`${quest.title} — 달라진 마을 모습`} draggable={false} onError={() => setBad(true)} />
+      <figcaption>{quest.title}</figcaption>
+    </figure>
+  );
 }
 
 // 마음 날씨 고르기 (1 폭풍 … 5 맑음). 같은 것을 다시 누르면 비운다.
@@ -825,6 +840,19 @@ function loadImage(src) {
   });
 }
 
+// 그림을 칸에 꽉 차게(가운데 기준으로 잘라) 그린다. r = 모서리 둥글기
+function drawCover(ctx, img, x, y, w, h, r = 0) {
+  const s = Math.max(w / img.width, h / img.height);
+  const sw = w / s;
+  const sh = h / s;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+  ctx.clip();
+  ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, x, y, w, h);
+  ctx.restore();
+}
+
 // 긴 한국어 문장을 낱말 단위로 줄 나누기 (낱말 중간에서 자르지 않음)
 function wrapWords(ctx, text, maxWidth, maxLines) {
   const words = text.split(/\s+/).filter(Boolean);
@@ -854,11 +882,22 @@ function wrapWords(ctx, text, maxWidth, maxLines) {
 async function saveResultCard({ name, room, score, energy, cleared, gems, eggs = 0, returned = 0, earnedBadges = [], title, reflect = {} }) {
   const badgeImgs = await Promise.all(earnedBadges.map((b) => (b.img ? loadImage(b.img) : null)));
   const moodImgs = await Promise.all([reflect.moodPre, reflect.moodPost].map((n) => (n ? loadImage(moodIcon(n)) : null)));
+  // 마을 그림: 맨 위 띠(완성된 마을) + 되살린 장소 모음. 못 읽은 그림은 빼고 그린다(하나도 없으면 예전 모양 그대로).
+  const sceneQuests = quests.filter((q) => !q.noScene);
+  const [headArt, ...sceneLoaded] = await Promise.all([loadImage(ENDING_ART), ...sceneQuests.map((q) => loadImage(sceneThumbOf(q.id)))]);
+  const sceneImgs = sceneLoaded.filter(Boolean);
   const promise = (reflect.promise || "").trim();
   const hasMood = !!(reflect.moodPre || reflect.moodPost);
   const extra = (promise ? 110 : 0) + (hasMood ? 84 : 0);
+  const HEAD = headArt ? 236 : 0;
+  const ALBUM_COLS = 8;
+  const ALBUM_GAP = 8;
+  const ALBUM_W = (880 - ALBUM_GAP * (ALBUM_COLS - 1)) / ALBUM_COLS;
+  const ALBUM_H = Math.round(ALBUM_W * 0.6);
+  const albumRows = Math.ceil(sceneImgs.length / ALBUM_COLS);
+  const ALBUM = albumRows ? 66 + albumRows * (ALBUM_H + ALBUM_GAP) : 0;
   const W = 1000;
-  const H = 880 + extra;
+  const H = 880 + extra + HEAD + ALBUM;
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
@@ -870,9 +909,21 @@ async function saveResultCard({ name, room, score, energy, cleared, gems, eggs =
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
+  if (headArt) {
+    // 완성된 마을 그림을 맨 위에 두르고, 아래쪽은 바탕색으로 스며들게 한다
+    drawCover(ctx, headArt, 28, 28, W - 56, HEAD + 30);
+    const fade = ctx.createLinearGradient(0, 28 + HEAD - 110, 0, 28 + HEAD + 30);
+    fade.addColorStop(0, "rgba(13,31,52,0)");
+    fade.addColorStop(1, "rgba(13,31,52,1)");
+    ctx.fillStyle = fade;
+    ctx.fillRect(28, 28 + HEAD - 110, W - 56, 141);
+  }
+
   ctx.strokeStyle = "rgba(255,255,255,.35)";
   ctx.lineWidth = 3;
   ctx.strokeRect(28, 28, W - 56, H - 56);
+
+  ctx.translate(0, HEAD);   // 아래 내용은 그림 띠만큼 내려 그린다
 
   ctx.fillStyle = "#facc15";
   ctx.font = "900 30px 'Apple SD Gothic Neo', sans-serif";
@@ -948,8 +999,25 @@ async function saveResultCard({ name, room, score, energy, cleared, gems, eggs =
   });
   ctx.textBaseline = "alphabetic";
 
+  // 내가 되살린 마을: 미션 장소 그림 모음
+  if (albumRows) {
+    ctx.fillStyle = "#facc15";
+    ctx.font = "900 22px 'Apple SD Gothic Neo', sans-serif";
+    ctx.fillText(`내가 되살린 마을 ${sceneImgs.length}곳`, 60, 866);
+    sceneImgs.forEach((img, i) => {
+      const cx = 60 + (i % ALBUM_COLS) * (ALBUM_W + ALBUM_GAP);
+      const cy = 884 + Math.floor(i / ALBUM_COLS) * (ALBUM_H + ALBUM_GAP);
+      drawCover(ctx, img, cx, cy, ALBUM_W, ALBUM_H, 10);
+      ctx.strokeStyle = "rgba(255,255,255,.3)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(cx, cy, ALBUM_W, ALBUM_H, 10);
+      ctx.stroke();
+    });
+  }
+
   // 오늘 마무리: 마음 날씨 · 우리 반 약속
-  let y = 866;
+  let y = 866 + ALBUM;
   if (hasMood) {
     ctx.fillStyle = "#facc15";
     ctx.font = "900 22px 'Apple SD Gothic Neo', sans-serif";
@@ -987,7 +1055,7 @@ async function saveResultCard({ name, room, score, energy, cleared, gems, eggs =
   const today = new Date().toLocaleDateString("ko-KR");
   ctx.fillStyle = "#94a3b8";
   ctx.font = "700 20px 'Apple SD Gothic Neo', sans-serif";
-  ctx.fillText(`${today} · 사회정서교육(SEL) 공동체 활동`, 60, H - 44);
+  ctx.fillText(`${today} · 사회정서교육(SEL) 공동체 활동`, 60, H - HEAD - 44);
 
   const stamp = new Date().toISOString().slice(0, 10);
   const roomTag = room ? `${room}반_` : "";
@@ -1074,6 +1142,8 @@ function Game() {
   const [deliverTarget, setDeliverTarget] = useState(null);
   const [deliverPopup, setDeliverPopup] = useState(null);
   const [codexOpen, setCodexOpen] = useState(false);
+  const [albumView, setAlbumView] = useState(null);
+  const [endingArtOk, setEndingArtOk] = useState(true);   // 마무리 그림을 못 읽으면 예전 한 줄 배치로   // 도감 「마을 앨범」에서 크게 보는 미션
   const [reflectOpen, setReflectOpen] = useState(false);
   // 오늘 마무리 기록: 시작·끝 마음 날씨(0=안 고름)와 우리 반 약속
   const [reflect, setReflect] = useState({ moodPre: 0, moodPost: 0, promise: "" });
@@ -1175,7 +1245,10 @@ function Game() {
     if (started && completed === quests.length && !completedAt) setCompletedAt(Date.now());
   }, [started, completed, completedAt]);
 
-  runningRef.current = started && !activeQuest && !endingOpen && !reflectOpen;
+  // 화면 전체를 덮는 창(도감·잠깐 멈춤 메뉴·이스터에그·돌려주기)이 떠 있는 동안도 세계를 멈춘다.
+  // 흐린 막 뒤에서 3D 를 계속 그리면 막을 매번 다시 흐리게 계산해 기기가 가장 뜨거워지는 구간이 된다.
+  const modalOpen = codexOpen || confirmReset || !!eggPopup || !!deliverPopup;
+  runningRef.current = started && !activeQuest && !endingOpen && !reflectOpen && !modalOpen;
 
   useEffect(() => {
     fogsRef.current = fogs;
@@ -2025,6 +2098,19 @@ function Game() {
     ? activeQuest.view || (solved[activeQuest.quest.id] ? "recap" : "ask")
     : null;
 
+  // 작은 화면에서는 대화창 안을 스크롤해 선택지를 고른다 → 화면이 바뀌면(질문→결과) 맨 위부터 다시 보이게
+  const dialogBoxRef = useRef(null);
+  const dialogQuestId = activeQuest?.quest.id;
+  useEffect(() => {
+    if (dialogBoxRef.current) dialogBoxRef.current.scrollTop = 0;
+  }, [dialogView, dialogQuestId]);
+  // 미션 창을 열면 그 장소 그림을 미리 받아 둔다 → 답을 고른 순간 바로 보인다
+  useEffect(() => {
+    if (!dialogQuestId) return;
+    const quest = quests.find((q) => q.id === dialogQuestId);
+    if (quest && !quest.noScene) new Image().src = sceneOf(quest.id);
+  }, [dialogQuestId]);
+
   // 엔딩 팡파레 (1회)
   const endingPlayedRef = useRef(false);
   useEffect(() => {
@@ -2150,7 +2236,7 @@ function Game() {
             >
               <img src={moodIcon(reflect.moodPost || 4)} alt="" />
             </button>
-            <button className="icon-chip codex-chip" onClick={() => setCodexOpen(true)} title="수집 도감" aria-label="수집 도감 열기">
+            <button className="icon-chip codex-chip" onClick={() => { setAlbumView(null); setCodexOpen(true); }} title="수집 도감" aria-label="수집 도감 열기">
               <BookOpen size={15} />
               {earnedBadges.length > 0 && <b>{earnedBadges.length}</b>}
             </button>
@@ -2357,6 +2443,30 @@ function Game() {
               <div><span>돌려준 물건</span><strong>{returnedCount}/{lostItems.length}</strong></div>
             </div>
 
+            <p className="codex-section-label">마을 앨범 · {completed}/{quests.length}</p>
+            <div className="codex-album">
+              {quests.map((quest) => (solved[quest.id] && !quest.noScene ? (
+                <button
+                  key={quest.id}
+                  type="button"
+                  className="album-cell open"
+                  onClick={() => setAlbumView(quest)}
+                  aria-label={`${quest.title} 그림 크게 보기`}
+                >
+                  <span className="album-pic">
+                    <img src={sceneThumbOf(quest.id)} alt="" loading="lazy" draggable={false} onError={(event) => { event.currentTarget.style.display = "none"; }} />
+                  </span>
+                  <b>{quest.title}</b>
+                </button>
+              ) : (
+                <div key={quest.id} className={solved[quest.id] ? "album-cell done" : "album-cell"}>
+                  <span className="album-pic" aria-hidden="true">{solved[quest.id] ? "✓" : "?"}</span>
+                  <b>{quest.title}</b>
+                </div>
+              )))}
+            </div>
+            <p className="codex-album-hint">미션을 풀 때마다 그 장소의 그림이 한 장씩 열려요. 그림을 누르면 크게 볼 수 있어요.</p>
+
             <p className="codex-section-label">획득한 배지 · {earnedBadges.length}/{badges.length}</p>
             <div className="codex-badges">
               {badges.map((badge) => {
@@ -2381,6 +2491,20 @@ function Game() {
               <p className="codex-save-hint">16개 미션을 모두 해결하면 여기서 인증서를 저장할 수 있어요.</p>
             )}
           </div>
+        </section>
+      )}
+
+      {codexOpen && albumView && (
+        <section className="dialog-layer album-layer" onClick={() => setAlbumView(null)}>
+          <figure className="album-view" onClick={(event) => event.stopPropagation()}>
+            <img src={sceneOf(albumView.id)} alt={`${albumView.title} — 달라진 마을 모습`} draggable={false} onError={(event) => { event.currentTarget.style.display = "none"; }} />
+            <figcaption>
+              <b>{albumView.title}</b>
+              <p>{albumView.choices.find((c) => c.good)?.reward}</p>
+              <small>{albumView.name}{josa(albumView.name, "과", "와")} 함께 되살린 곳</small>
+            </figcaption>
+            <button className="codex-close" onClick={() => setAlbumView(null)} aria-label="닫기">✕</button>
+          </figure>
         </section>
       )}
 
@@ -2473,7 +2597,7 @@ function Game() {
 
       {activeQuest && (
         <section className="dialog-layer" onClick={() => dialogView !== "ask" && setActiveQuest(null)}>
-          <div className="dialog" onClick={(event) => event.stopPropagation()}>
+          <div className="dialog" ref={dialogBoxRef} onClick={(event) => event.stopPropagation()}>
             <div className="dialog-character">
               <div className="dialog-avatar" style={{ borderColor: activeQuest.quest.color }}>
                 <img src={portraitOf(activeQuest.quest.id)} alt={activeQuest.quest.name} />
@@ -2510,24 +2634,30 @@ function Game() {
 
             {(dialogView === "result" || dialogView === "recap") && (
               <div className="insight-block">
-                {dialogView === "result" && (
-                  <div className={activeQuest.choice.good ? "answer-tag good" : "answer-tag soft"}>
-                    {activeQuest.choice.good
-                      ? "좋은 선택이에요! 마을이 한 뼘 더 따뜻해졌어요."
-                      : "그 마음도 이해돼요. 그런데 이렇게 하면 친구가 더 좋았을 거예요 👇"}
+                {/* 좋은 선택을 했을 때(그리고 푼 미션을 다시 열었을 때)만 되살아난 장소 그림을 보여 준다 */}
+                {(dialogView === "recap" || activeQuest.choice?.good) && (
+                  <SceneArt key={activeQuest.quest.id} quest={activeQuest.quest} />
+                )}
+                <div className="insight-main">
+                  {dialogView === "result" && (
+                    <div className={activeQuest.choice.good ? "answer-tag good" : "answer-tag soft"}>
+                      {activeQuest.choice.good
+                        ? "좋은 선택이에요! 마을이 한 뼘 더 따뜻해졌어요."
+                        : "그 마음도 이해돼요. 그런데 이렇게 하면 친구가 더 좋았을 거예요 👇"}
+                    </div>
+                  )}
+                  {(dialogView === "recap" || (dialogView === "result" && !activeQuest.choice.good)) && (
+                    <p className="recap-choice">✓ {activeQuest.quest.choices.find((c) => c.good)?.text}</p>
+                  )}
+                  <div className="insight-card">
+                    <span
+                      className="stat-chip"
+                      style={{ background: statOf(activeQuest.quest.stat)?.color }}
+                    >
+                      {statOf(activeQuest.quest.stat)?.label}
+                    </span>
+                    <p>{activeQuest.quest.insight}</p>
                   </div>
-                )}
-                {(dialogView === "recap" || (dialogView === "result" && !activeQuest.choice.good)) && (
-                  <p className="recap-choice">✓ {activeQuest.quest.choices.find((c) => c.good)?.text}</p>
-                )}
-                <div className="insight-card">
-                  <span
-                    className="stat-chip"
-                    style={{ background: statOf(activeQuest.quest.stat)?.color }}
-                  >
-                    {statOf(activeQuest.quest.stat)?.label}
-                  </span>
-                  <p>{activeQuest.quest.insight}</p>
                 </div>
                 <div className="result-actions">
                   {dialogView === "result" && !activeQuest.choice.good && !solved[activeQuest.quest.id] && (
@@ -2550,7 +2680,9 @@ function Game() {
 
       {endingOpen && (
         <section className="ending-layer">
-          <div className="ending-card">
+          <div className={`ending-card${endingArtOk ? " with-art" : ""}`}>
+            <div className="ending-head">
+            {endingArtOk && <img className="ending-art" src={ENDING_ART} alt="불이 켜진 우리 마을" draggable={false} onError={() => setEndingArtOk(false)} />}
             <PartyPopper size={40} color="#facc15" />
             <h2>미션 1단계 완주! 🎉</h2>
             <p className="ending-title">칭호: <strong>{endingTitle}</strong></p>
@@ -2558,6 +2690,8 @@ function Game() {
               {profile.name} 탐험가가 16개의 마음 미션을 모두 풀었어요.
               <br /><strong style={{ color: "#86efac" }}>하지만 아직 끝이 아니에요 — 마을엔 할 일이 많이 남았어요!</strong>
             </p>
+            </div>
+            <div className="ending-body">
             <div className="ending-todo">
               <div className={treasureCount >= treasures.length ? "done" : ""}>💛 마음 조각 <b>{treasureCount}/{treasures.length}</b></div>
               <div className={returnedCount >= lostItems.length ? "done" : ""}>📮 분실물 돌려주기 <b>{returnedCount}/{lostItems.length}</b></div>
@@ -2573,6 +2707,7 @@ function Game() {
               <button className="ghost" onClick={saveCertificate}>지금까지 인증서 저장</button>
               <button className="ghost" onClick={goHome}>메인으로</button>
               <button className="ghost" onClick={() => setConfirmReset(true)}>처음부터 다시</button>
+            </div>
             </div>
           </div>
         </section>
@@ -2604,6 +2739,8 @@ async function applyCustomQuests() {
     (data.quests || []).forEach((custom) => {
       const target = quests.find((q) => q.id === custom.id);
       if (!target) return;
+      // 장소 이름을 바꾸면 준비된 장면 그림과 맞지 않으므로 그 미션의 그림은 감춘다
+      if (typeof custom.title === "string" && custom.title && custom.title !== target.title) target.noScene = true;
       ["name", "title", "problem", "insight"].forEach((key) => {
         if (typeof custom[key] === "string" && custom[key]) target[key] = custom[key];
       });

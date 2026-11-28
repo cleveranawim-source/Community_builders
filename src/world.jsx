@@ -559,46 +559,174 @@ function createMistCocoon() {
   return { group, material, sprite };
 }
 
+// ── 발열 완화: 구역 나누기 ──────────────────────────────────────────
+// InstancedMesh 는 묶음 전체를 한 덩어리로 보고 "화면에 걸리는가"를 판정한다.
+// 지도 전체(141×141)를 한 묶음으로 두면 화면에 5%만 보여도 매 프레임 전부 그리게 되므로,
+// 구역(size×size)별 묶음으로 나눠 화면·그림자 범위 밖 구역은 three.js 가 통째로 건너뛰게 한다.
+// place(mesh, i, item, index): i = 구역 안 순번, index = 원래 목록의 순번(색 고르기에 씀)
+const TERRAIN_CHUNK = 16;
+const DECOR_CHUNK = 32;
+function addInstancedByChunk(scene, { geometry, material, items, size, xz, place, perChunk, cast = false, receive = false }) {
+  const meshes = [];
+  const buckets = new Map();
+  items.forEach((item, index) => {
+    const [x, z] = xz(item);
+    const key = `${Math.floor((x + HALF) / size)},${Math.floor((z + HALF) / size)}`;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = [];
+      buckets.set(key, bucket);
+    }
+    bucket.push([item, index]);
+  });
+  buckets.forEach((bucket) => {
+    // perChunk: 구역마다 타일별 값(땅 질감 칸 위치 등)을 따로 실어야 할 때 구역용 도형을 만든다
+    const mesh = new THREE.InstancedMesh(perChunk ? perChunk(geometry, bucket) : geometry, material, bucket.length);
+    bucket.forEach(([item, index], i) => place(mesh, i, item, index));
+    mesh.castShadow = cast;
+    mesh.receiveShadow = receive;
+    mesh.matrixAutoUpdate = false; // 움직이지 않는 묶음: 매 프레임 행렬 계산 생략
+    mesh.computeBoundingSphere(); // 구역 크기에 맞는 판정 범위
+    scene.add(mesh);
+    meshes.push(mesh);
+  });
+  return meshes;
+}
+
+// ── 땅 질감 (2026-11-28) ─────────────────────────────────────────────
+// 그림 한 장(assets/ground.webp)에 땅 6종을 묶어 두고, 타일 윗판이 자기 종류의 한 칸을 읽는다.
+// 종류마다 4×4 타일 크기의 무늬라서 이웃 타일로 무늬가 이어진다(이음매는 타일 사이 틈에 가려진다).
+// 그림 한 장 + 재질 하나라 그리기 횟수는 그대로다. 그림을 못 읽으면 예전처럼 단색으로 남는다.
+const GROUND_TEX = { url: `${import.meta.env.BASE_URL}assets/ground.webp`, W: 1632, H: 1088, box: 544, gutter: 16, cell: 128, K: 4 };
+const GROUND_TYPES = ["grass", "moss", "sand", "path", "plaza", "bridge"];
+
+function groundChunkGeometry(base, bucket) {
+  const geo = new THREE.BufferGeometry();
+  geo.setIndex(base.index);
+  geo.setAttribute("position", base.attributes.position);
+  geo.setAttribute("normal", base.attributes.normal);
+  geo.setAttribute("uv", base.attributes.uv);
+  const { W, H, box, gutter, cell, K } = GROUND_TEX;
+  const off = new Float32Array(bucket.length * 2);
+  bucket.forEach(([tile], i) => {
+    const t = Math.max(0, GROUND_TYPES.indexOf(tile.type));
+    const cx = ((tile.x % K) + K) % K;
+    const cz = ((tile.z % K) + K) % K;
+    off[i * 2] = ((t % 3) * box + gutter + cx * cell) / W;
+    off[i * 2 + 1] = (Math.floor(t / 3) * box + gutter + cz * cell) / H;
+  });
+  geo.setAttribute("tileOff", new THREE.InstancedBufferAttribute(off, 2));
+  return geo;
+}
+
+function groundTopMaterial() {
+  const material = mat(0xffffff, { roughness: 0.82 });
+  const { W, H, cell } = GROUND_TEX;
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute vec2 tileOff;")
+      .replace(
+        "#include <uv_vertex>",
+        `#include <uv_vertex>
+#ifdef USE_MAP
+  vMapUv = tileOff + (position.xz + 0.5) * vec2(${(cell / W).toFixed(8)}, ${(cell / H).toFixed(8)});
+#endif`
+      );
+  };
+  material.customProgramCacheKey = () => "ground-top";
+  return material;
+}
+
+// 그림을 다 읽은 뒤에 윗판에 입힌다. alive(): 화면이 이미 닫혔으면 버린다.
+function applyGroundTexture(material, meshes, { anisotropy = 1, alive = () => true, onReady } = {}) {
+  new THREE.TextureLoader().load(
+    GROUND_TEX.url,
+    (tex) => {
+      if (!alive()) {
+        tex.dispose();
+        return;
+      }
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.flipY = false;
+      tex.anisotropy = anisotropy;
+      tex.needsUpdate = true;
+      material.map = tex;
+      material.needsUpdate = true;
+      // 그림에 색이 들어 있으므로 타일별 단색은 흰색으로 돌린다
+      meshes.forEach((mesh) => {
+        if (!mesh.instanceColor) return;
+        mesh.instanceColor.array.fill(1);
+        mesh.instanceColor.needsUpdate = true;
+      });
+      onReady?.(tex);
+    },
+    undefined,
+    () => {} // 못 읽으면 단색 그대로
+  );
+}
+
 // 지형은 타일 수천 개를 InstancedMesh로 묶어 드로우콜과 재질 수를 최소화한다.
 function buildTerrain(scene) {
   const blockGeo = new THREE.BoxGeometry(1, 0.42, 1);
   const edgeGeo = new THREE.BoxGeometry(0.92, 0.035, 0.92);
   const matrix = new THREE.Matrix4();
+  const color = new THREE.Color();
+  const tileXZ = (tile) => [tile.x, tile.z];
 
-  const byType = {};
-  TERRAIN.tiles.forEach((tile) => {
-    (byType[tile.type] ||= []).push(tile);
-  });
+  const land = TERRAIN.tiles.filter((tile) => tile.type !== "water");
+  const water = TERRAIN.tiles.filter((tile) => tile.type === "water");
 
-  Object.entries(byType).forEach(([type, group]) => {
-    if (!group.length) return;
-    const isWater = type === "water";
-    const material = mat(terrainColors[type], {
-      roughness: isWater ? 0.26 : 0.78,
-      metalness: isWater ? 0.02 : 0,
-      ...(isWater
-        ? { transparent: true, opacity: 0.68, emissive: new THREE.Color(0x1b7fb3), emissiveIntensity: 0.1 }
-        : {}),
-    });
-    const instanced = new THREE.InstancedMesh(blockGeo, material, group.length);
-    group.forEach((tile, i) => {
+  // 땅 종류(풀·길·광장…)는 색만 다르고 재질은 같아서, 흰 재질에 타일별 색을 입힌다
+  // (종류마다 묶음을 따로 두면 구역 수만큼 그리기 횟수가 늘어난다)
+  addInstancedByChunk(scene, {
+    geometry: blockGeo,
+    material: mat(0xffffff, { roughness: 0.78, metalness: 0 }),
+    items: land,
+    size: TERRAIN_CHUNK,
+    xz: tileXZ,
+    cast: true,
+    receive: true,
+    place: (mesh, i, tile) => {
       matrix.setPosition(tile.x, tile.height, tile.z);
-      instanced.setMatrixAt(i, matrix);
-    });
-    instanced.receiveShadow = true;
-    instanced.castShadow = !isWater;
-    scene.add(instanced);
-
-    if (!isWater) {
-      const tops = new THREE.InstancedMesh(edgeGeo, mat(terrainTopColors[type], { roughness: 0.82 }), group.length);
-      group.forEach((tile, i) => {
-        matrix.setPosition(tile.x, tile.height + 0.23, tile.z);
-        tops.setMatrixAt(i, matrix);
-      });
-      tops.receiveShadow = true;
-      scene.add(tops);
-    }
+      mesh.setMatrixAt(i, matrix);
+      mesh.setColorAt(i, color.setHex(terrainColors[tile.type]));
+    },
   });
+  const topMaterial = groundTopMaterial();
+  const topMeshes = addInstancedByChunk(scene, {
+    geometry: edgeGeo,
+    material: topMaterial,
+    items: land,
+    size: TERRAIN_CHUNK,
+    xz: tileXZ,
+    receive: true,
+    perChunk: groundChunkGeometry,
+    place: (mesh, i, tile) => {
+      matrix.setPosition(tile.x, tile.height + 0.23, tile.z);
+      mesh.setMatrixAt(i, matrix);
+      mesh.setColorAt(i, color.setHex(terrainTopColors[tile.type]));
+    },
+  });
+  addInstancedByChunk(scene, {
+    geometry: blockGeo,
+    material: mat(terrainColors.water, {
+      roughness: 0.26,
+      metalness: 0.02,
+      transparent: true,
+      opacity: 0.68,
+      emissive: new THREE.Color(0x1b7fb3),
+      emissiveIntensity: 0.1,
+    }),
+    items: water,
+    size: TERRAIN_CHUNK,
+    xz: tileXZ,
+    receive: true,
+    place: (mesh, i, tile) => {
+      matrix.setPosition(tile.x, tile.height, tile.z);
+      mesh.setMatrixAt(i, matrix);
+    },
+  });
+  return { topMaterial, topMeshes };
 }
 
 function mulberry32(seed) {
@@ -707,57 +835,64 @@ function buildDecorations(scene) {
   const pos = new THREE.Vector3();
   const color = new THREE.Color();
 
-  const trunkMesh = new THREE.InstancedMesh(
-    new THREE.CylinderGeometry(0.16, 0.22, 1.3, 7),
-    mat(0x8b6138, { roughness: 0.9 }),
-    trees.length
-  );
-  const leafMesh = new THREE.InstancedMesh(
-    new THREE.SphereGeometry(0.7, 14, 11),
-    mat(0xffffff, { roughness: 0.82 }),
-    trees.length
-  );
+  const pairXZ = ([x, z]) => [x, z];
+  const spotXZ = (spot) => [spot.x, spot.z];
+  const chunked = (options) => addInstancedByChunk(scene, { size: DECOR_CHUNK, ...options });
+
   const leafShades = [0x4fae68, 0x5cbd74, 0x3f9e5c, 0x6ac97f];
-  trees.forEach(([x, z, r], i) => {
-    const s = 0.8 + r * 0.6;
-    const y = groundHeight(x, z);
-    matrix.compose(pos.set(x, y + 0.65 * s, z), quat, scale.set(s, s, s));
-    trunkMesh.setMatrixAt(i, matrix);
-    matrix.compose(pos.set(x, y + 1.72 * s, z), quat, scale.set(s, s * 0.94, s));
-    leafMesh.setMatrixAt(i, matrix);
-    leafMesh.setColorAt(i, color.setHex(leafShades[i % leafShades.length]));
+  chunked({
+    geometry: new THREE.CylinderGeometry(0.16, 0.22, 1.3, 7),
+    material: mat(0x8b6138, { roughness: 0.9 }),
+    items: trees,
+    xz: pairXZ,
+    cast: true,
+    place: (mesh, i, [x, z, r]) => {
+      const s = 0.8 + r * 0.6;
+      matrix.compose(pos.set(x, groundHeight(x, z) + 0.65 * s, z), quat, scale.set(s, s, s));
+      mesh.setMatrixAt(i, matrix);
+    },
   });
-  trunkMesh.castShadow = true;
-  leafMesh.castShadow = true;
-  scene.add(trunkMesh, leafMesh);
+  chunked({
+    geometry: new THREE.SphereGeometry(0.7, 14, 11),
+    material: mat(0xffffff, { roughness: 0.82 }),
+    items: trees,
+    xz: pairXZ,
+    cast: true,
+    place: (mesh, i, [x, z, r], index) => {
+      const s = 0.8 + r * 0.6;
+      matrix.compose(pos.set(x, groundHeight(x, z) + 1.72 * s, z), quat, scale.set(s, s * 0.94, s));
+      mesh.setMatrixAt(i, matrix);
+      mesh.setColorAt(i, color.setHex(leafShades[index % leafShades.length]));
+    },
+  });
 
-  const bushMesh = new THREE.InstancedMesh(
-    new THREE.SphereGeometry(0.5, 12, 9),
-    mat(0xffffff, { roughness: 0.85 }),
-    bushes.length
-  );
-  bushes.forEach(([x, z, r], i) => {
-    const s = 0.8 + r * 0.5;
-    matrix.compose(pos.set(x, groundHeight(x, z) + 0.42 * s, z), quat, scale.set(1.25 * s, 0.72 * s, 1.25 * s));
-    bushMesh.setMatrixAt(i, matrix);
-    bushMesh.setColorAt(i, color.setHex(i % 2 ? 0x55b06b : 0x66c07a));
+  chunked({
+    geometry: new THREE.SphereGeometry(0.5, 12, 9),
+    material: mat(0xffffff, { roughness: 0.85 }),
+    items: bushes,
+    xz: pairXZ,
+    cast: true,
+    place: (mesh, i, [x, z, r], index) => {
+      const s = 0.8 + r * 0.5;
+      matrix.compose(pos.set(x, groundHeight(x, z) + 0.42 * s, z), quat, scale.set(1.25 * s, 0.72 * s, 1.25 * s));
+      mesh.setMatrixAt(i, matrix);
+      mesh.setColorAt(i, color.setHex(index % 2 ? 0x55b06b : 0x66c07a));
+    },
   });
-  bushMesh.castShadow = true;
-  scene.add(bushMesh);
 
-  const rockMesh = new THREE.InstancedMesh(
-    new THREE.DodecahedronGeometry(0.42, 0),
-    mat(0xffffff, { roughness: 0.9 }),
-    rocks.length
-  );
-  rocks.forEach(([x, z, r], i) => {
-    const s = 0.7 + r * 0.7;
-    matrix.compose(pos.set(x, groundHeight(x, z) + 0.32 * s, z), quat, scale.set(s, 0.78 * s, s));
-    rockMesh.setMatrixAt(i, matrix);
-    rockMesh.setColorAt(i, color.setHex(i % 2 ? 0x9aa3ad : 0xb2bac2));
+  chunked({
+    geometry: new THREE.DodecahedronGeometry(0.42, 0),
+    material: mat(0xffffff, { roughness: 0.9 }),
+    items: rocks,
+    xz: pairXZ,
+    cast: true,
+    place: (mesh, i, [x, z, r], index) => {
+      const s = 0.7 + r * 0.7;
+      matrix.compose(pos.set(x, groundHeight(x, z) + 0.32 * s, z), quat, scale.set(s, 0.78 * s, s));
+      mesh.setMatrixAt(i, matrix);
+      mesh.setColorAt(i, color.setHex(index % 2 ? 0x9aa3ad : 0xb2bac2));
+    },
   });
-  rockMesh.castShadow = true;
-  scene.add(rockMesh);
 
   // 꽃: 홑꽃 + 꽃밭 클러스터 12곳, 3종(구슬꽃·데이지·튤립)
   const flowerSpots = [];
@@ -791,71 +926,70 @@ function buildDecorations(scene) {
   const byFlowerType = [[], [], []];
   flowerSpots.forEach((spot) => byFlowerType[spot.type].push(spot));
 
-  const stemMesh = new THREE.InstancedMesh(
-    new THREE.CylinderGeometry(0.025, 0.025, 0.28, 6),
-    mat(0x3d9b5d),
-    flowerSpots.length
-  );
-  flowerSpots.forEach((spot, i) => {
-    const y = groundHeight(spot.x, spot.z);
-    matrix.compose(pos.set(spot.x, y + 0.48, spot.z), quat, scale.set(1, 1, 1));
-    stemMesh.setMatrixAt(i, matrix);
+  chunked({
+    geometry: new THREE.CylinderGeometry(0.025, 0.025, 0.28, 6),
+    material: mat(0x3d9b5d),
+    items: flowerSpots,
+    xz: spotXZ,
+    place: (mesh, i, spot) => {
+      matrix.compose(pos.set(spot.x, groundHeight(spot.x, spot.z) + 0.48, spot.z), quat, scale.set(1, 1, 1));
+      mesh.setMatrixAt(i, matrix);
+    },
   });
-  scene.add(stemMesh);
 
   // 구슬꽃
   const orbShades = [0xff8fab, 0xffd166, 0x8b5cf6, 0x7dd3fc, 0xfb923c];
-  const orbMesh = new THREE.InstancedMesh(
-    new THREE.SphereGeometry(0.105, 10, 8),
-    mat(0xffffff, { roughness: 0.5 }),
-    byFlowerType[0].length
-  );
-  byFlowerType[0].forEach((spot, i) => {
-    const y = groundHeight(spot.x, spot.z);
-    matrix.compose(pos.set(spot.x, y + 0.66, spot.z), quat, scale.set(1, 1, 1));
-    orbMesh.setMatrixAt(i, matrix);
-    orbMesh.setColorAt(i, color.setHex(orbShades[Math.floor(spot.v * orbShades.length) % orbShades.length]));
+  chunked({
+    geometry: new THREE.SphereGeometry(0.105, 10, 8),
+    material: mat(0xffffff, { roughness: 0.5 }),
+    items: byFlowerType[0],
+    xz: spotXZ,
+    cast: true,
+    place: (mesh, i, spot) => {
+      matrix.compose(pos.set(spot.x, groundHeight(spot.x, spot.z) + 0.66, spot.z), quat, scale.set(1, 1, 1));
+      mesh.setMatrixAt(i, matrix);
+      mesh.setColorAt(i, color.setHex(orbShades[Math.floor(spot.v * orbShades.length) % orbShades.length]));
+    },
   });
-  orbMesh.castShadow = true;
-  scene.add(orbMesh);
 
   // 데이지 (납작한 꽃판 + 노란 중심)
   const daisyShades = [0xffffff, 0xffe4ef, 0xfdf3c8];
-  const daisyPetal = new THREE.InstancedMesh(
-    new THREE.SphereGeometry(0.13, 10, 8),
-    mat(0xffffff, { roughness: 0.55 }),
-    byFlowerType[1].length
-  );
-  const daisyCenter = new THREE.InstancedMesh(
-    new THREE.SphereGeometry(0.05, 8, 6),
-    mat(0xffd166, { roughness: 0.5 }),
-    byFlowerType[1].length
-  );
-  byFlowerType[1].forEach((spot, i) => {
-    const y = groundHeight(spot.x, spot.z);
-    matrix.compose(pos.set(spot.x, y + 0.63, spot.z), quat, scale.set(1, 0.32, 1));
-    daisyPetal.setMatrixAt(i, matrix);
-    daisyPetal.setColorAt(i, color.setHex(daisyShades[Math.floor(spot.v * daisyShades.length) % daisyShades.length]));
-    matrix.compose(pos.set(spot.x, y + 0.68, spot.z), quat, scale.set(1, 1, 1));
-    daisyCenter.setMatrixAt(i, matrix);
+  chunked({
+    geometry: new THREE.SphereGeometry(0.13, 10, 8),
+    material: mat(0xffffff, { roughness: 0.55 }),
+    items: byFlowerType[1],
+    xz: spotXZ,
+    place: (mesh, i, spot) => {
+      matrix.compose(pos.set(spot.x, groundHeight(spot.x, spot.z) + 0.63, spot.z), quat, scale.set(1, 0.32, 1));
+      mesh.setMatrixAt(i, matrix);
+      mesh.setColorAt(i, color.setHex(daisyShades[Math.floor(spot.v * daisyShades.length) % daisyShades.length]));
+    },
   });
-  scene.add(daisyPetal, daisyCenter);
+  chunked({
+    geometry: new THREE.SphereGeometry(0.05, 8, 6),
+    material: mat(0xffd166, { roughness: 0.5 }),
+    items: byFlowerType[1],
+    xz: spotXZ,
+    place: (mesh, i, spot) => {
+      matrix.compose(pos.set(spot.x, groundHeight(spot.x, spot.z) + 0.68, spot.z), quat, scale.set(1, 1, 1));
+      mesh.setMatrixAt(i, matrix);
+    },
+  });
 
   // 튤립 (달걀형 꽃봉오리)
   const tulipShades = [0xef4444, 0xf472b6, 0xa855f7, 0xfb923c, 0xfacc15];
-  const tulipMesh = new THREE.InstancedMesh(
-    new THREE.SphereGeometry(0.1, 10, 8),
-    mat(0xffffff, { roughness: 0.45 }),
-    byFlowerType[2].length
-  );
-  byFlowerType[2].forEach((spot, i) => {
-    const y = groundHeight(spot.x, spot.z);
-    matrix.compose(pos.set(spot.x, y + 0.68, spot.z), quat, scale.set(0.8, 1.3, 0.8));
-    tulipMesh.setMatrixAt(i, matrix);
-    tulipMesh.setColorAt(i, color.setHex(tulipShades[Math.floor(spot.v * tulipShades.length) % tulipShades.length]));
+  chunked({
+    geometry: new THREE.SphereGeometry(0.1, 10, 8),
+    material: mat(0xffffff, { roughness: 0.45 }),
+    items: byFlowerType[2],
+    xz: spotXZ,
+    cast: true,
+    place: (mesh, i, spot) => {
+      matrix.compose(pos.set(spot.x, groundHeight(spot.x, spot.z) + 0.68, spot.z), quat, scale.set(0.8, 1.3, 0.8));
+      mesh.setMatrixAt(i, matrix);
+      mesh.setColorAt(i, color.setHex(tulipShades[Math.floor(spot.v * tulipShades.length) % tulipShades.length]));
+    },
   });
-  tulipMesh.castShadow = true;
-  scene.add(tulipMesh);
 
   // 순환로 바깥 가로등 (내측·외측)
   const lanternSpots = [];
@@ -1026,7 +1160,16 @@ export default function GameWorld({
     rim.position.set(-8, 6, -8);
     scene.add(rim);
 
-    buildTerrain(scene);
+    const ground = buildTerrain(scene);
+    let sceneAlive = true;
+    let groundTexture = null;
+    applyGroundTexture(ground.topMaterial, ground.topMeshes, {
+      anisotropy: lowPower ? 1 : Math.min(4, renderer.capabilities.getMaxAnisotropy()),
+      alive: () => sceneAlive,
+      onReady: (tex) => {
+        groundTexture = tex;
+      },
+    });
     const fountainOrb = buildDecorations(scene);
 
     const playerChar = createCharacterModel({ color: 0xffcf5a, hair: 0x25314d, player: true });
@@ -1185,9 +1328,13 @@ export default function GameWorld({
     sceneRef.current = { scene, camera, renderer };
     if (import.meta.env.DEV) globalThis.__cbRenderer = renderer;
 
+    // 가려진 동안(첫 화면·대화창·엔딩)에는 그리기를 멈춘다. 그때도 한 장은 다시 그려야 하는
+    // 경우(화면 회전·크기 변경은 캔버스를 비운다)에 이 값을 켠다.
+    let forceFrame = false;
     let resizeQueued = false;
     const onResize = () => {
       if (!mount.clientWidth || !mount.clientHeight) return;
+      forceFrame = true;
       const nextAspect = mount.clientWidth / mount.clientHeight;
       camera.left = (-cameraSize * nextAspect) / 2;
       camera.right = (cameraSize * nextAspect) / 2;
@@ -1221,6 +1368,8 @@ export default function GameWorld({
     // 발열 완화: 120Hz(ProMotion) 태블릿에서도 최대 프레임을 제한한다
     const FRAME_MS = lowPower || touchDevice ? 1000 / 30 : 1000 / 60;
     let lastFrame = 0;
+    const IDLE_SETTLE_MS = 600;
+    let idleSince = 0; // 가려진 상태가 시작된 때 (0 = 게임 중)
     const camTarget = new THREE.Vector3();
     const bloomM4 = new THREE.Matrix4();
     const bloomQ = new THREE.Quaternion();
@@ -1232,19 +1381,30 @@ export default function GameWorld({
       // 백그라운드 탭이면 렌더·연산 전부 건너뛴다
       if (document.hidden) {
         last = performance.now();
+        forceFrame = true; // 다시 보일 때 멈춰 있던 화면도 한 장은 새로 그린다
         return;
       }
       const now = performance.now();
-      // 대화·엔딩·인트로처럼 배경이 정지/블러일 땐 프레임을 더 낮춰 발열을 아낀다
-      const frameGap = runningRef.current ? FRAME_MS : 1000 / 20;
-      if (now - lastFrame < frameGap - 1) return;
+      // 첫 화면·대화창·엔딩처럼 3D가 가려지거나 흐리게 깔린 동안:
+      // 열리는 순간의 움직임만 0.6초 마무리해 그리고, 그 뒤로는 계산도 그리기도 멈춘다.
+      // (학생이 가장 오래 머무는 '읽는 시간'에 기기가 쉬게 된다. 닫으면 바로 이어진다)
+      const running = runningRef.current;
+      if (running) idleSince = 0;
+      else if (!idleSince) idleSince = now;
+      if (!running && !forceFrame && now - idleSince > IDLE_SETTLE_MS) {
+        last = now;
+        return;
+      }
+      const frameGap = running ? FRAME_MS : 1000 / 20;
+      if (!forceFrame && now - lastFrame < frameGap - 1) return;
+      forceFrame = false;
       lastFrame = now;
       const dt = Math.min((now - last) / 1000, 0.05);
       last = now;
       const t = now * 0.001;
       const player = playerRef.current;
 
-      if (runningRef.current) {
+      if (running) {
         const input = inputRef.current;
         let ix = input.joy.x;
         let iy = input.joy.y;
@@ -1570,6 +1730,8 @@ export default function GameWorld({
       cancelAnimationFrame(raf);
       ro.disconnect();
       window.removeEventListener("resize", onResize);
+      sceneAlive = false;
+      groundTexture?.dispose();
       disposeScene(scene, renderer);
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
       sceneRef.current = null;

@@ -1267,6 +1267,11 @@ meter::-webkit-meter-optimum-value {
     radial-gradient(circle at 20% 12%, rgba(255,255,255,.18), transparent 22rem),
     linear-gradient(135deg, rgba(18, 25, 43, .94), rgba(8, 15, 28, .92));
   box-shadow: 0 28px 80px rgba(0, 0, 0, .42);
+  /* 화면보다 길어지면 창 안에서 스크롤 — 작은 폰·주소창이 보이는 브라우저에서
+     아래쪽 「확인」이 화면 밖으로 잘리지 않게 한다 */
+  max-height: calc(var(--app-height, 100dvh) - 36px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .dialog-character {
@@ -1398,17 +1403,17 @@ meter::-webkit-meter-optimum-value {
     grid-template-columns: 18px 64px 1fr 24px;
   }
 
-  /* 하단 스택(세로): prompt 150 → carry-hud 228 → toast 288.
+  /* 하단 스택(세로): prompt 166 → carry-hud 240 → toast 300.
      캐릭터가 화면 중앙에 있으므로 토스트가 중앙(40%+)까지 올라오지 않게 한다. */
   .toast {
-    bottom: 288px;
+    bottom: 300px;
     border-radius: 18px;
     font-size: 12px;
     max-width: min(400px, calc(100vw - 48px));
   }
 
   .carry-hud {
-    bottom: calc(228px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(240px + env(safe-area-inset-bottom, 0px));
   }
 
   .choice-grid {
@@ -2583,9 +2588,9 @@ meter::-webkit-meter-optimum-value {
     font-size: 12px;
   }
 
-  /* 컨트롤과 겹치지 않도록 미션 배너를 컨트롤 위로 */
+  /* 컨트롤과 겹치지 않도록 미션 배너를 컨트롤 위로 (조이스틱 120px + 여백 20px + 간격) */
   .quest-prompt {
-    bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(166px + env(safe-area-inset-bottom, 0px));
     max-width: calc(100vw - 40px);
   }
 
@@ -3270,4 +3275,344 @@ meter::-webkit-meter-optimum-value {
   .tb-mood .ml { font-size: 10px; }
   .tb-mood .rl { font-size: 11.5px; white-space: normal; word-break: keep-all; }
   .tb-mood .mc { font-size: 20px; }
+}
+
+/* ---------- 2026-11-27 휴대폰 화면 손질 · 발열 완화 ---------- */
+
+/* 세로가 짧은 세로 화면(작은 폰, 주소창이 보이는 브라우저): 아래쪽에 미션 배너·들고 있는 물건·
+   알림을 3단으로 쌓을 자리가 없어 알림이 화면 가운데 캐릭터를 덮는다 → 알림만 맨 위에 잠깐 띄운다 */
+@media (orientation: portrait) and (max-width: 860px) and (max-height: 800px) {
+  .toast {
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    bottom: auto;
+  }
+}
+
+/* 태블릿 세로(740~860px): 조이스틱과 빛구슬 버튼 사이가 넓으므로 미션 배너를 맨 아랫줄로 내린다
+   (166px 높이에 두면 오른쪽 역량 패널 모서리와 겹친다) */
+@media (orientation: portrait) and (min-width: 740px) and (max-width: 860px) {
+  .quest-prompt {
+    bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+    max-width: calc(100vw - 390px);
+  }
+}
+
+/* 가로 폰: 좁은 미션 배너에서 「새 미션 발견!」이 세 줄로 꺾이지 않게 */
+@media (orientation: landscape) and (max-height: 500px) {
+  .quest-prompt { gap: 8px; }
+  .quest-prompt-text b {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .quest-prompt-key { display: none; }   /* 키보드 E 안내는 터치 화면에서 뺀다 */
+}
+
+/* 첫 화면이 스크롤될 만큼 낮은 화면: 구석에 떠 있던 서명이 버튼 위로 겹친다 → 패널 아래에 놓는다 */
+@media (max-height: 800px) {
+  .intro-brand {
+    position: static;
+    margin-top: 12px;
+  }
+}
+
+/* 발열 완화 — 터치 기기(폰·태블릿): 3D 화면 위 패널의 '흐림(blur)' 효과를 뺀다.
+   흐림은 3D 가 새로 그려질 때마다 기기 원래 해상도로 다시 계산돼, 작은 패널 몇 개가
+   3D 그리기에 맞먹는 부하가 된다. 대신 바탕을 조금 진하게 해 글자는 그대로 읽히게 한다.
+   (대화창·엔딩의 전체 화면 흐림은 그동안 3D 가 멈춰 있어 한 번만 계산되므로 그대로 둔다) */
+@media (pointer: coarse) {
+  .hud.top-left,
+  .hud.top-right {
+    backdrop-filter: none;
+    background: rgba(8, 15, 28, .74);
+  }
+  .joystick,
+  .quest-prompt,
+  .carry-hud,
+  .corner-btn,
+  .intro-brand {
+    backdrop-filter: none;
+  }
+  .game-shell .guide-arrow {
+    backdrop-filter: none;
+    background: rgba(8, 15, 28, .76);
+  }
+  .toast {
+    backdrop-filter: none;
+    background: rgba(255, 255, 255, .95);
+  }
+  .intro-panel {
+    backdrop-filter: none;
+    background: rgba(8, 15, 28, .88);
+  }
+}
+
+/* 알림: 가운데 정렬(left: 50%) 때문에 너비가 화면 절반으로 줄어 짧은 문장도 세 줄로 꺾였다 → 글 길이만큼 넓힌다 */
+.toast { width: max-content; }
+
+/* 대화창이 화면보다 길어 안에서 스크롤될 때도 「확인」·「다시 골라볼래요?」는 늘 아래에 보이게 붙인다 */
+.result-actions {
+  position: sticky;
+  bottom: -1px;
+  z-index: 2;
+  margin-top: 2px;
+  margin-bottom: -10px;
+  padding: 12px 0 10px;
+  background: linear-gradient(to top, rgba(10, 17, 31, .98) 70%, rgba(10, 17, 31, 0));
+  /* 버튼 아래 여백으로 스크롤되는 글이 비치지 않게 같은 색으로 덮는다 */
+  box-shadow: 0 24px 0 rgba(10, 17, 31, .98);
+}
+
+/* 폰(터치 + 좁은 화면): 키보드 안내 「E」는 뺀다 — 그만큼 배너 글자가 덜 잘린다 */
+@media (pointer: coarse) and (max-width: 520px) {
+  .quest-prompt-key,
+  .carry-key { display: none; }
+}
+
+/* 세로가 아주 짧은 세로 화면(작은 폰 + 주소창, 높이 650px 이하):
+   조작 버튼과 배너를 조금씩 줄여 「들고 있는 물건」 표시가 가운데 캐릭터를 덮지 않게 한다
+   아래에서부터: 조이스틱 104 → 미션 배너 146 → 들고 있는 물건 204 */
+@media (orientation: portrait) and (max-width: 860px) and (max-height: 650px) {
+  .joystick { width: 104px; height: 104px; }
+  .shoot-fab { width: 78px; height: 78px; }
+  .quest-prompt {
+    bottom: calc(146px + env(safe-area-inset-bottom, 0px));
+    gap: 8px;
+    padding: 5px 12px 5px 8px;
+  }
+  .quest-prompt-avatar,
+  .quest-prompt-emoji { width: 38px; height: 38px; border-radius: 12px; }
+  .quest-prompt-emoji .ico-img { width: 30px; height: 30px; }
+  .carry-hud {
+    bottom: calc(204px + env(safe-area-inset-bottom, 0px));
+    padding: 4px 6px 4px 12px;
+  }
+  .carry-icon .ico-img { width: 28px; height: 28px; }
+  .carry-drop { min-height: 34px; }
+}
+
+/* ---------- 2026-11-28 미션 장면 그림 · 마을 앨범 ---------- */
+
+/* 미션을 풀면(또는 푼 미션을 다시 열면) 되살아난 장소 그림이 글 옆에 놓인다.
+   그림이 없을 때(다른 선택·그림을 못 읽음)는 글이 예전처럼 한 단을 다 쓴다 */
+.insight-block {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  column-gap: 18px;
+  align-items: start;
+}
+.insight-block > * { grid-column: 1 / -1; min-width: 0; }
+.insight-block > .scene-card { grid-column: 1; }
+.insight-block > .scene-card + .insight-main { grid-column: 2; }
+
+.scene-card {
+  position: relative;
+  margin: 0;
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  background: linear-gradient(140deg, rgba(134, 239, 172, .16), rgba(125, 211, 252, .12));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .3);
+}
+.scene-card img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation: scene-in .7s ease both;
+}
+.scene-card figcaption {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  max-width: calc(100% - 20px);
+  border-radius: 999px;
+  padding: 5px 11px;
+  color: #0f172a;
+  background: rgba(255, 255, 255, .92);
+  font-size: 12.5px;
+  font-weight: 900;
+  line-height: 1.3;
+  word-break: keep-all;
+}
+@keyframes scene-in {
+  from { opacity: 0; transform: scale(1.05); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 좁은 화면(세로 폰): 그림을 글 위에 띠처럼 올린다 */
+@media (max-width: 700px) {
+  .insight-block > .scene-card,
+  .insight-block > .scene-card + .insight-main { grid-column: 1 / -1; }
+  .scene-card {
+    aspect-ratio: auto;
+    height: min(24vh, 190px);
+    margin-bottom: 12px;
+  }
+}
+
+/* 세로가 짧은 세로 폰(주소창이 보이는 작은 폰): 그림을 낮춰 아래 설명 글이 더 보이게 한다 */
+@media (max-width: 700px) and (max-height: 700px) {
+  .scene-card { height: 112px; margin-bottom: 10px; }
+}
+
+/* 가로 폰: 세로가 짧으니 다시 두 단으로 — 그림 높이만 줄인다 */
+@media (orientation: landscape) and (max-height: 500px) {
+  .insight-block { column-gap: 12px; }
+  .insight-block > .scene-card { grid-column: 1; }
+  .insight-block > .scene-card + .insight-main { grid-column: 2; }
+  .scene-card {
+    aspect-ratio: auto;
+    height: min(42vh, 168px);
+    margin-bottom: 0;
+    border-radius: 14px;
+  }
+  .scene-card figcaption { left: 7px; bottom: 7px; padding: 3px 9px; font-size: 11px; }
+}
+
+/* 도감 「마을 앨범」: 푼 미션의 장소 그림이 한 장씩 열린다 */
+.codex-album {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 8px;
+}
+.album-cell {
+  display: grid;
+  gap: 5px;
+  align-content: start;
+  padding: 0;
+  color: #7c8aa0;
+  background: none;
+  text-align: center;
+}
+.album-cell .album-pic {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, .22);
+  background: rgba(255, 255, 255, .05);
+  color: #64748b;
+  font-size: 17px;
+  font-weight: 900;
+}
+.album-cell.open .album-pic {
+  border: 1px solid rgba(255, 255, 255, .34);
+  background: linear-gradient(140deg, rgba(134, 239, 172, .2), rgba(125, 211, 252, .14));
+}
+.album-cell.done .album-pic { color: #86efac; border-style: solid; }
+.album-cell .album-pic img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.album-cell b {
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  word-break: keep-all;
+}
+.album-cell.open b,
+.album-cell.done b { color: #e2e8f0; }
+button.album-cell:hover .album-pic,
+button.album-cell:focus-visible .album-pic {
+  border-color: #3FE5A0;
+  box-shadow: 0 0 0 2px rgba(63, 229, 160, .35);
+}
+.codex-album-hint {
+  margin: 10px 0 18px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  word-break: keep-all;
+}
+
+/* 앨범 그림 크게 보기 */
+.album-layer { z-index: 21; }
+.album-view {
+  position: relative;
+  width: min(760px, 100%);
+  max-height: calc(var(--app-height, 100dvh) - 36px);
+  margin: 0;
+  overflow-y: auto;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, .25);
+  background: rgba(9, 18, 34, .98);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, .55);
+}
+.album-view img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 60vh;
+  object-fit: cover;
+  background: linear-gradient(140deg, rgba(134, 239, 172, .16), rgba(125, 211, 252, .12));
+}
+.album-view figcaption { padding: 14px 18px 18px; }
+.album-view figcaption b {
+  display: block;
+  color: #fde68a;
+  font-size: 18px;
+  font-weight: 900;
+}
+.album-view figcaption p {
+  margin-top: 6px;
+  color: #e2e8f0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+.album-view figcaption small {
+  display: block;
+  margin-top: 6px;
+  color: #94a3b8;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.album-view .codex-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  color: #fff;
+  background: rgba(8, 15, 28, .72);
+}
+
+/* 마무리 화면: 불이 켜진 마을 그림 */
+.ending-art {
+  display: block;
+  width: 100%;
+  aspect-ratio: 5 / 2;
+  margin-bottom: 16px;
+  object-fit: cover;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  animation: scene-in .8s ease both;
+}
+@media (max-height: 560px) {
+  .ending-art { aspect-ratio: 4 / 1; margin-bottom: 8px; border-radius: 14px; }
+}
+/* PC·가로 태블릿처럼 넓고 낮은 화면: 그림 쪽과 할 일 쪽을 좌우로 나눠 「계속 탐험하기」가 한 화면에 들어오게.
+   그림을 못 읽었으면(with-art 없음) 예전 한 줄 배치 그대로. */
+@media (min-width: 900px) and (min-height: 600px) and (max-height: 1040px) {
+  .ending-card.with-art {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    gap: clamp(20px, 3vw, 36px);
+    align-items: center;
+    width: min(1000px, 100%);
+    padding: clamp(22px, 3vw, 32px);
+  }
+  .ending-card.with-art .ending-art { aspect-ratio: 4 / 3; margin-bottom: 14px; }
+  .ending-card.with-art h2 { font-size: clamp(28px, 3vw, 38px); }
+  .ending-card.with-art .ending-body > :first-child { margin-top: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene-card img,
+  .ending-art { animation: none; }
 }
