@@ -371,9 +371,6 @@ function IntroScreen({ onStart, onContinue, savedGame }) {
         </p>
         <a className="teacher-link" href="#teacher">교사용 화면 열기 →</a>
       </div>
-      <div className="intro-brand" aria-label="만든 사람 LevLab Yeol">
-        <b>Lev</b>Lab <span>Yeol</span>
-      </div>
 
       {showTeaser && (
         <div className="teaser-modal" onClick={() => setShowTeaser(false)}>
@@ -826,7 +823,6 @@ function TeacherBoard() {
           )}
         </section>
       )}
-      <p className="tb-sign">만든 사람 LevLab Yeol</p>
     </main>
   );
 }
