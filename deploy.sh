@@ -16,9 +16,10 @@ REPO="$(git remote get-url origin)"                     # https://github.com/<ow
 SLUG="${REPO#https://github.com/}"; SLUG="${SLUG%.git}"
 SITE="https://${SLUG%%/*}.github.io/${SLUG#*/}"
 
-DRIVE_REL="내 드라이브/[00] 명지중학교/2026년/[08] 사회정서교육 연수/교육청 사회교육자료/emotion-quest-rpg"
+# 학교 폴더 이름은 적지 않는다 — '내 드라이브' 바로 아래 폴더들에서 찾는다 (2026-11-28)
+DRIVE_REL="2026년/[08] 사회정서교육 연수/교육청 사회교육자료/emotion-quest-rpg"
 DRIVE=""
-for d in "$HOME"/Library/CloudStorage/GoogleDrive-*/"$DRIVE_REL"; do
+for d in "$HOME"/Library/CloudStorage/GoogleDrive-*/"내 드라이브"/*/"$DRIVE_REL"; do
   [ -d "$d" ] && DRIVE="$d" && break
 done
 
